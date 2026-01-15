@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mk-edge-api
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3333}:3333"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=${PORT:-3333}
+      - MONGODB_URL=mongodb://mongo:27017/mkedgetenants
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - mk-edge-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3333/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  mongo:
+    image: mongo:6-jammy
+    container_name: mk-edge-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: mkedgetenants
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+    networks:
+      - mk-edge-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/mkedgetenants --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    command: mongod --noauth
+
+volumes:
+  mongo-data:
+    driver: local
+  mongo-config:
+    driver: local
+
+networks:
+  mk-edge-network:
+    driver: bridge

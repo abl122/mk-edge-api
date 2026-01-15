@@ -1,0 +1,36 @@
+meta {
+  name: Listar Chamados
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/requests?tenant_id={{tenantId}}
+  body: json
+  auth: bearer
+}
+
+params:query {
+  tenant_id: {{tenantId}}
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "tecnico": null,
+    "status": "aberto"
+  }
+}
+
+docs {
+  Lista chamados do sistema.
+  
+  Body (opcional):
+  - tecnico: ID do técnico (null = todos)
+  - status: Status do chamado (aberto, fechado)
+  
+  Requer autenticação.
+}

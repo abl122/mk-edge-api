@@ -1,0 +1,24 @@
+meta {
+  name: Verify Token
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/auth/verify
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+docs {
+  Verifica se um token JWT é válido.
+  
+  Headers:
+  - Authorization: Bearer {token}
+  
+  Retorna dados do usuário se token for válido.
+}

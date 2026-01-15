@@ -1,0 +1,30 @@
+meta {
+  name: Login Portal (CNPJ)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/auth/portal/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "cnpj": "12345678901234",
+    "password": "senha123"
+  }
+}
+
+docs {
+  Login do portal do tenant usando CNPJ.
+  
+  Body:
+  - cnpj: CNPJ do provedor/tenant
+  - password: Senha do tenant
+  
+  Retorna:
+  - token: JWT do tenant
+  - tenant: Dados do tenant
+}

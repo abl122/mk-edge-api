@@ -1,0 +1,31 @@
+# Configuração de roteamento para pasta public
+# Servir arquivos estáticos (HTML, CSS, JS, imagens, vídeos)
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  
+  # Redireciona /admin para /admin/index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^admin(.*)$ /admin/index.html [L]
+  
+  # Redireciona /portal para /portal/index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^portal(.*)$ /portal/index.html [L]
+  
+  # Redireciona / para /site/index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)$ /site/index.html [L]
+</IfModule>
+
+# Cache headers
+<FilesMatch "\.(jpg|jpeg|png|gif|ico|css|js|svg|webp|woff|woff2)$">
+  Header set Cache-Control "max-age=2592000, public"
+</FilesMatch>
+
+# Compressão
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css text/javascript application/javascript application/json
+</IfModule>

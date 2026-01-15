@@ -1,0 +1,35 @@
+meta {
+  name: Faturas do Cliente
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/invoices/123?tenant_id={{tenantId}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  tenant_id: {{tenantId}}
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+docs {
+  Busca faturas de um cliente.
+  
+  Path params:
+  - client_id: ID do cliente (ou login)
+  
+  Retorna:
+  - observacao: Observações do cliente
+  - rem_obs: Observações de remoção
+  - invoices:
+    - pending_invoices: Faturas pendentes (com boleto e PIX)
+    - paid_invoices: Faturas pagas
+  
+  Requer autenticação.
+}

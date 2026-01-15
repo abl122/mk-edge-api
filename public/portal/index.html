@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - {{TENANT_NAME}}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: {{TENANT_COLOR_PRIMARY}};
+            --secondary: {{TENANT_COLOR_SECONDARY}};
+            --text-dark: #1a1a1a;
+            --text-light: #666;
+            --bg-light: #f8f9fa;
+            --border-color: #e0e0e0;
+            --white: #ffffff;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-light);
+            color: var(--text-dark);
+            line-height: 1.6;
+        }
+
+        /* ===== HEADER ===== */
+        header {
+            background-color: var(--white);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .logo {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .header-info h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .header-info p {
+            font-size: 12px;
+            color: var(--text-light);
+            margin-top: 2px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .user-menu {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--bg-light);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .btn-logout {
+            background-color: var(--danger);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .btn-logout:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        /* ===== MAIN CONTAINER ===== */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* ===== STATS GRID ===== */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            border-left: 4px solid var(--primary);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-card.success {
+            border-left-color: var(--success);
+        }
+
+        .stat-card.warning {
+            border-left-color: var(--warning);
+        }
+
+        .stat-card.danger {
+            border-left-color: var(--danger);
+        }
+
+        .stat-card.secondary {
+            border-left-color: var(--secondary);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-light);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-dark);
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-info {
+            font-size: 12px;
+            color: var(--text-light);
+        }
+
+        .stat-icon {
+            float: right;
+            font-size: 24px;
+            opacity: 0.1;
+            margin-top: -2rem;
+        }
+
+        /* ===== SECTIONS ===== */
+        .section {
+            background: white;
+            border-radius: 10px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: var(--text-dark);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .section-title i {
+            color: var(--primary);
+            font-size: 20px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+        }
+
+        .info-item {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1rem;
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-size: 11px;
+            color: var(--text-light);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .info-value {
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--text-dark);
+            word-break: break-word;
+        }
+
+        /* ===== ACTION BUTTONS ===== */
+        .actions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .btn-action {
+            background: white;
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s;
+            color: var(--text-dark);
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .btn-action:hover {
+            border-color: var(--primary);
+            background: linear-gradient(to bottom, rgba(0,0,0,0.01), transparent);
+            color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .btn-action i {
+            display: block;
+            font-size: 24px;
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+        }
+
+        /* ===== BADGES & PILLS ===== */
+        .badge {
+            display: inline-block;
+            padding: 0.4rem 0.8rem;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .badge.active {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+
+        .badge.inactive {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+
+        .badge.pending {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        /* ===== TOAST NOTIFICATIONS ===== */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 2000;
+            animation: slideIn 0.3s ease-out;
+            max-width: 400px;
+        }
+
+        .toast.success {
+            border-left: 4px solid var(--success);
+        }
+
+        .toast.error {
+            border-left: 4px solid var(--danger);
+        }
+
+        .toast.info {
+            border-left: 4px solid var(--primary);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .loading {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 768px) {
+            .header-content {
+                padding: 1rem;
+                gap: 1rem;
+            }
+
+            .header-info h1 {
+                font-size: 16px;
+            }
+
+            .header-right {
+                gap: 1rem;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .section {
+                padding: 1.5rem;
+            }
+
+            .header-left {
+                gap: 1rem;
+            }
+
+            .logo {
+                width: 40px;
+                height: 40px;
+                font-size: 18px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header-content {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .header-right {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .actions-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stat-card {
+                padding: 1rem;
+            }
+
+            .stat-value {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- HEADER -->
+    <header>
+        <div class="header-content">
+            <div class="header-left">
+                <div class="logo">{{TENANT_INITIAL}}</div>
+                <div class="header-info">
+                    <h1>{{TENANT_NAME}}</h1>
+                    <p>Painel de Controle</p>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="user-menu">
+                    <div class="user-avatar" id="userInitial">--</div>
+                    <button class="btn-logout" onclick="handleLogout()">
+                        <i class="fas fa-sign-out-alt"></i> Sair
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTAINER -->
+    <div class="container">
+        <!-- STATS GRID -->
+        <div class="stats-grid">
+            <div class="stat-card success">
+                <div class="stat-label">Status da Assinatura</div>
+                <div class="stat-value" id="statusValue">
+                    <span class="loading"></span>
+                </div>
+                <div class="stat-info" id="statusInfo">Carregando...</div>
+                <i class="fas fa-check stat-icon"></i>
+            </div>
+
+            <div class="stat-card secondary">
+                <div class="stat-label">Plano Atual</div>
+                <div class="stat-value" id="planValue" style="font-size: 16px;">
+                    <span class="loading"></span>
+                </div>
+                <div class="stat-info" id="planInfo">Carregando...</div>
+                <i class="fas fa-package stat-icon"></i>
+            </div>
+
+            <div class="stat-card warning">
+                <div class="stat-label">Data de Expiração</div>
+                <div class="stat-value" id="expiryValue" style="font-size: 16px;">
+                    <span class="loading"></span>
+                </div>
+                <div class="stat-info" id="expiryInfo">Carregando...</div>
+                <i class="fas fa-calendar stat-icon"></i>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-label">Valor Mensal</div>
+                <div class="stat-value" id="monthlyValue" style="font-size: 20px;">
+                    <span class="loading"></span>
+                </div>
+                <div class="stat-info" id="monthlyInfo">Carregando...</div>
+                <i class="fas fa-dollar-sign stat-icon"></i>
+            </div>
+        </div>
+
+        <!-- TENANT INFO SECTION -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-building"></i>
+                Informações da Empresa
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Razão Social</div>
+                    <div class="info-value">{{TENANT_RAZAO_SOCIAL}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">CNPJ</div>
+                    <div class="info-value">{{TENANT_CNPJ}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">E-mail Corporativo</div>
+                    <div class="info-value">{{TENANT_EMAIL}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Telefone</div>
+                    <div class="info-value">{{TENANT_PHONE}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Domínio</div>
+                    <div class="info-value">{{TENANT_DOMAIN}}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Status do Domínio</div>
+                    <div class="info-value">
+                        <span class="badge active">
+                            <i class="fas fa-circle"></i> Ativo
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SUBSCRIPTION SECTION -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-receipt"></i>
+                Detalhes da Assinatura
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Plano</div>
+                    <div class="info-value" id="subscriptionPlan">Premium</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Status</div>
+                    <div class="info-value">
+                        <span class="badge active" id="subscriptionStatus">Ativo</span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Data de Início</div>
+                    <div class="info-value" id="subscriptionStart">--/--/----</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Data de Expiração</div>
+                    <div class="info-value" id="subscriptionExpiry">--/--/----</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Recorrência</div>
+                    <div class="info-value" id="subscriptionRecurrence">Mensal</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Quantidade de Usuários</div>
+                    <div class="info-value" id="usersCount">
+                        <span class="loading"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AGENT STATUS SECTION -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-shield-alt"></i>
+                Status do Agente MK-Auth
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">Agente</div>
+                    <div class="info-value">MK-Auth Enterprise</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Versão</div>
+                    <div class="info-value" id="agentVersion">v2.0.0</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Status de Conexão</div>
+                    <div class="info-value">
+                        <span class="badge active" id="agentStatus">
+                            <i class="fas fa-wifi"></i> Conectado
+                        </span>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Última Sincronização</div>
+                    <div class="info-value" id="lastSync">Agora mesmo</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- QUICK ACTIONS SECTION -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-bolt"></i>
+                Ações Rápidas
+            </div>
+            <div class="actions-grid">
+                <button class="btn-action" onclick="handleChangePassword()">
+                    <i class="fas fa-key"></i>
+                    Alterar Senha
+                </button>
+                <button class="btn-action" onclick="handleRefresh()">
+                    <i class="fas fa-sync-alt"></i>
+                    Atualizar Dados
+                </button>
+                <button class="btn-action" onclick="handleDownloadReceipt()">
+                    <i class="fas fa-download"></i>
+                    Baixar Comprovante
+                </button>
+                <button class="btn-action" onclick="handleSupport()">
+                    <i class="fas fa-headset"></i>
+                    Suporte
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== CONFIGURATION & GLOBALS =====
+        const API_URL = '/api';
+        const authToken = localStorage.getItem('accessToken');
+        console.log('🔑 Portal index - Token:', authToken ? authToken.substring(0, 20) + '...' : 'NÃO ENCONTRADO');
+        const tenantDomain = window.location.hostname;
+
+        // ===== UTILITIES =====
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle'}"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '--/--/----';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('pt-BR');
+        }
+
+        function formatCurrency(value) {
+            if (!value) return 'R$ 0,00';
+            return new Intl.NumberFormat('pt-BR', {
+                style: 'currency',
+                currency: 'BRL'
+            }).format(value);
+        }
+
+        function getInitials(name) {
+            return name
+                .split(' ')
+                .map(word => word[0])
+                .join('')
+                .toUpperCase()
+                .substring(0, 2);
+        }
+
+        // ===== AUTHENTICATION CHECK =====
+        function checkAuth() {
+            if (!authToken) {
+                window.location.href = '/portal/login';
+                return false;
+            }
+            return true;
+        }
+
+        // ===== DATA LOADING =====
+        async function loadDashboardData() {
+            try {
+                // Load user data
+                const meResponse = await fetch(`${API_URL}/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!meResponse.ok) throw new Error('Failed to load user data');
+
+                const userData = await meResponse.json();
+
+                // Load tenant config
+                const configResponse = await fetch(`${API_URL}/public/config?dominio=${tenantDomain}`);
+                const configData = configResponse.ok ? await configResponse.json() : {};
+
+                // Load users count
+                const usersResponse = await fetch(`${API_URL}/users`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const usersData = usersResponse.ok ? await usersResponse.json() : { count: 0 };
+
+                updateDashboard(userData, configData, usersData);
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+                showToast('Erro ao carregar dados do dashboard', 'error');
+            }
+        }
+
+        function updateDashboard(userData, configData, usersData) {
+            try {
+                // Update user info
+                if (userData.email) {
+                    document.getElementById('userInitial').textContent = getInitials(userData.email);
+                }
+
+                // Update subscription status
+                const status = configData.status || 'ATIVO';
+                const statusValue = document.getElementById('statusValue');
+                statusValue.textContent = status;
+                statusValue.className = status === 'ATIVO' ? '' : '';
+
+                // Update plan
+                document.getElementById('planValue').textContent = configData.plano || 'Premium';
+                document.getElementById('planInfo').textContent = configData.plano ? 'Plano ativo' : 'Informação não disponível';
+
+                // Update expiry
+                const expiryDate = formatDate(configData.dataExpiracao);
+                document.getElementById('expiryValue').textContent = expiryDate;
+                document.getElementById('expiryInfo').textContent = 'Data de renovação';
+
+                // Update monthly value
+                document.getElementById('monthlyValue').textContent = formatCurrency(configData.valorMensal || 0);
+                document.getElementById('monthlyInfo').textContent = 'Valor da assinatura';
+
+                // Update subscription details
+                document.getElementById('subscriptionPlan').textContent = configData.plano || 'Premium';
+                document.getElementById('subscriptionStart').textContent = formatDate(configData.dataInicio);
+                document.getElementById('subscriptionExpiry').textContent = expiryDate;
+                document.getElementById('subscriptionRecurrence').textContent = configData.recorrencia || 'Mensal';
+
+                // Update users count
+                document.getElementById('usersCount').textContent = usersData.count || 0;
+
+                // Update agent status
+                document.getElementById('lastSync').textContent = 'Agora mesmo';
+
+                showToast('Dados carregados com sucesso!', 'success');
+            } catch (error) {
+                console.error('Error updating dashboard:', error);
+                showToast('Erro ao atualizar dados', 'error');
+            }
+        }
+
+        // ===== ACTION HANDLERS =====
+        function handleChangePassword() {
+            const newPassword = prompt('Digite a nova senha:');
+            if (newPassword) {
+                showToast('Função de alterar senha em desenvolvimento', 'info');
+            }
+        }
+
+        function handleRefresh() {
+            showToast('Atualizando dados...', 'info');
+            loadDashboardData();
+        }
+
+        function handleDownloadReceipt() {
+            showToast('Baixando comprovante...', 'info');
+            // Implement receipt download logic
+        }
+
+        function handleSupport() {
+            window.open('mailto:suporte@mkauth.com.br', '_blank');
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+            window.location.href = '/portal/login';
+        }
+
+        // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', () => {
+            if (checkAuth()) {
+                loadDashboardData();
+                // Refresh data every 5 minutes
+                setInterval(loadDashboardData, 5 * 60 * 1000);
+            }
+        });
+    </script>
+</body>
+</html>

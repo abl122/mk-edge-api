@@ -1,0 +1,35 @@
+meta {
+  name: Buscar Cliente
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/client/123?tenant_id={{tenantId}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  tenant_id: {{tenantId}}
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+docs {
+  Busca dados de um cliente por ID.
+  
+  Path params:
+  - id: ID do cliente (ou login)
+  
+  Retorna todos os dados do cliente incluindo:
+  - Informações pessoais
+  - Endereço
+  - Contratos
+  - Status
+  - etc.
+  
+  Requer autenticação.
+}

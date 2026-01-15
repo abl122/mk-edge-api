@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal MK-Edge - Instruções de Instalação</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .header .welcome {
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+
+        .steps-container {
+            display: grid;
+            gap: 20px;
+        }
+
+        .step {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border-left: 4px solid #667eea;
+        }
+
+        .step.completed {
+            border-left-color: #27ae60;
+            background: #f0fdf4;
+        }
+
+        .step-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .step-number {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 50px;
+            height: 50px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+
+        .step.completed .step-number {
+            background: #27ae60;
+        }
+
+        .step-title {
+            font-size: 1.3em;
+            color: #2c3e50;
+            margin: 0;
+        }
+
+        .step-time {
+            color: #95a5a6;
+            font-size: 0.9em;
+            margin-left: auto;
+        }
+
+        .step-content {
+            margin-left: 65px;
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .code-block {
+            background: #2c3e50;
+            color: #27ae60;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95em;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.3s ease;
+        }
+
+        .copy-btn:hover {
+            background: #764ba2;
+        }
+
+        .credentials-box {
+            background: #fff9e6;
+            border: 2px solid #f39c12;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .credential-item {
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #f0e0bb;
+        }
+
+        .credential-item:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .credential-label {
+            color: #d68910;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+
+        .credential-value {
+            color: #2c3e50;
+            font-family: 'Courier New', monospace;
+            font-size: 1.1em;
+            margin-top: 5px;
+            word-break: break-all;
+        }
+
+        .download-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .download-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .download-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .download-card i {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .download-card h3 {
+            margin: 10px 0;
+            font-size: 1.1em;
+        }
+
+        .download-card p {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #28a745;
+        }
+
+        .info-box {
+            background: #d1ecf1;
+            color: #0c5460;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #17a2b8;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #ffc107;
+        }
+
+        .checklist {
+            list-style: none;
+            margin: 15px 0;
+        }
+
+        .checklist li {
+            padding: 10px 0;
+            padding-left: 30px;
+            position: relative;
+        }
+
+        .checklist li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #27ae60;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #ecf0f1;
+            color: #2c3e50;
+        }
+
+        .btn-secondary:hover {
+            background: #bdc3c7;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+        }
+
+        footer {
+            text-align: center;
+            color: white;
+            margin-top: 40px;
+            padding: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 1.5em;
+            }
+
+            .step {
+                padding: 20px;
+            }
+
+            .step-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .step-time {
+                margin-left: 0;
+                margin-top: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-rocket"></i> Bem-vindo ao MK-Edge!</h1>
+            <p class="welcome">Sua assinatura foi confirmada com sucesso 🎉</p>
+        </div>
+
+        <div class="steps-container">
+            <!-- PASSO 1: Credenciais -->
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">1</div>
+                    <h2 class="step-title">Suas Credenciais de Acesso</h2>
+                    <span class="step-time">2 min</span>
+                </div>
+                <div class="step-content">
+                    <p>Guarde estas informações com segurança. Use-as para acessar o painel de controle e instalar o agente.</p>
+                    
+                    <div class="credentials-box">
+                        <div class="credential-item">
+                            <div class="credential-label">Email / Usuário</div>
+                            <div class="credential-value" id="credentialEmail">carregando...</div>
+                        </div>
+                        <div class="credential-item">
+                            <div class="credential-label">CNPJ</div>
+                            <div class="credential-value" id="credentialCNPJ">carregando...</div>
+                        </div>
+                        <div class="credential-item">
+                            <div class="credential-label">Tenant ID</div>
+                            <div class="credential-value" id="credentialTenantID">carregando...</div>
+                        </div>
+                        <div class="credential-item">
+                            <div class="credential-label">Token do Agente (32 bytes)</div>
+                            <div class="credential-value" id="credentialToken" style="font-size: 0.9em;">carregando...</div>
+                        </div>
+                        <div class="credential-item">
+                            <div class="credential-label">Senha Temporária</div>
+                            <div class="credential-value" id="credentialPassword">carregando...</div>
+                        </div>
+                        <div class="credential-item">
+                            <div class="credential-label">URL do Portal</div>
+                            <div class="credential-value" id="credentialURL">carregando...</div>
+                        </div>
+                    </div>
+
+                    <div class="warning-box">
+                        <i class="fas fa-exclamation-triangle"></i> 
+                        Altere sua senha ao fazer login pela primeira vez!
+                    </div>
+                </div>
+            </div>
+
+            <!-- PASSO 2: Instalar Agente -->
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">2</div>
+                    <h2 class="step-title">Instalar o Agente (API)</h2>
+                    <span class="step-time">5 min</span>
+                </div>
+                <div class="step-content">
+                    <p>Download do instalador personalizado com suas credenciais:</p>
+                    
+                    <button class="btn btn-primary" onclick="downloadInstallerScript()">
+                        <i class="fas fa-download"></i> Baixar Instalador (.sh)
+                    </button>
+
+                    <p style="margin-top: 20px; color: #666;">Ou execute manualmente no terminal do seu servidor:</p>
+                    
+                    <div class="code-block">
+                        <button class="copy-btn" onclick="copyToClipboard('installCommand')">
+                            <i class="fas fa-copy"></i> Copiar
+                        </button>
+                        <span id="installCommand">curl -s ${window.location.origin}/api/installer/script/TENANT_ID?email=seu@email.com | bash</span>
+                    </div>
+
+                        <button class="copy-btn" onclick="copyToClipboard('installCommand')">
+                            <i class="fas fa-copy"></i> Copiar
+                        </button>
+                        <span id="installCommand">curl -s https://updata.com.br/mk-edge/installer.sh | bash -s TENANT_ID EMAIL</span>
+                    </div>
+
+                    <div class="info-box">
+                        <i class="fas fa-info-circle"></i>
+                        O instalador faz download de <code>api.php</code> e <code>config.php</code> 
+                        e os coloca em <code>/opt/mk-auth/admin/addons/mk-edge/</code>
+                    </div>
+
+                    <h3 style="margin-top: 20px; color: #2c3e50;">Requisitos:</h3>
+                    <ul class="checklist">
+                        <li>Linux (Ubuntu/Debian recomendado)</li>
+                        <li>PHP 7.4 ou superior</li>
+                        <li>Acesso ao terminal com privilégios sudo</li>
+                        <li>Conexão com a internet</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- PASSO 3: Download do Aplicativo -->
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">3</div>
+                    <h2 class="step-title">Baixar Aplicativo Mobile</h2>
+                    <span class="step-time">1 min</span>
+                </div>
+                <div class="step-content">
+                    <p>Instale o aplicativo MK-Edge no seu telefone para gerenciar tudo na palma da mão.</p>
+                    
+                    <div class="download-section">
+                        <a href="https://updata.com.br/mk-edge/mk-edge.apk" class="download-card" download>
+                            <i class="fab fa-android"></i>
+                            <h3>Android</h3>
+                            <p>APK Download</p>
+                        </a>
+                        <a href="#" class="download-card" onclick="alert('Em breve no App Store')">
+                            <i class="fab fa-apple"></i>
+                            <h3>iOS</h3>
+                            <p>App Store (em breve)</p>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PASSO 4: Primeiros Passos -->
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">4</div>
+                    <h2 class="step-title">Primeiros Passos</h2>
+                    <span class="step-time">10 min</span>
+                </div>
+                <div class="step-content">
+                    <h3 style="color: #2c3e50; margin-bottom: 15px;">Após instalar o agente, siga estes passos:</h3>
+                    
+                    <ul class="checklist">
+                        <li>Acesse o portal com suas credenciais</li>
+                        <li>Altere a senha temporária para uma segura</li>
+                        <li>Configure as integrações necessárias</li>
+                        <li>Teste a conexão com o agente</li>
+                        <li>Personalize as configurações</li>
+                    </ul>
+
+                    <div class="button-group">
+                        <a href="#" class="btn btn-primary" onclick="accessPortal()">
+                            <i class="fas fa-sign-in-alt"></i> Acessar Portal
+                        </a>
+                        <a href="https://docs.mkedge.com.br" class="btn btn-secondary">
+                            <i class="fas fa-book"></i> Ver Documentação
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PASSO 5: Suporte -->
+            <div class="step">
+                <div class="step-header">
+                    <div class="step-number">5</div>
+                    <h2 class="step-title">Precisa de Ajuda?</h2>
+                </div>
+                <div class="step-content">
+                    <p>Estamos aqui para ajudar! Entre em contato conosco por:</p>
+                    
+                    <div style="margin: 20px 0;">
+                        <p><i class="fas fa-envelope"></i> <strong>Email:</strong> suporte@mkedge.com.br</p>
+                        <p><i class="fas fa-phone"></i> <strong>Telefone:</strong> (11) 3000-0000</p>
+                        <p><i class="fas fa-comments"></i> <strong>WhatsApp:</strong> (11) 99999-9999</p>
+                    </div>
+
+                    <div class="success-message">
+                        <i class="fas fa-check-circle"></i> 
+                        Consulte nossa documentação em: <strong>https://docs.mkedge.com.br</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>&copy; 2024 MK-Edge. Todos os direitos reservados.</p>
+            <p style="font-size: 0.9em; margin-top: 10px;">
+                <a href="#" style="color: white;">Termos de Serviço</a> | 
+                <a href="#" style="color: white;">Política de Privacidade</a> | 
+                <a href="#" style="color: white;">Suporte</a>
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // ===== AUTENTICAÇÃO =====
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('portalToken');
+            if (!token) {
+                window.location.href = '/portal/login';
+                return;
+            }
+            
+            loadCredentials();
+            updateInstallCommand();
+        });
+
+        // ===== CARREGAR CREDENCIAIS DINAMICAMENTE =====
+        function loadCredentials() {
+            // Carregar dados do tenant armazenados após login
+            const tenant = JSON.parse(localStorage.getItem('tenant') || '{}');
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            
+            // Email/Usuário
+            const email = tenant.email || user.email || localStorage.getItem('portal_email') || 'seu@email.com';
+            document.getElementById('credentialEmail').textContent = email;
+
+            // CNPJ - formatado
+            if (tenant.cnpj) {
+                document.getElementById('credentialCNPJ').textContent = formatCNPJ(tenant.cnpj);
+            }
+
+            // Tenant ID
+            if (tenant.tenant_id || tenant._id) {
+                document.getElementById('credentialTenantID').textContent = tenant.tenant_id || tenant._id;
+            }
+
+            // Token do Agente (mostrar parcialmente por segurança)
+            if (tenant.token_agente) {
+                const token = tenant.token_agente;
+                const displayed = token.substring(0, 32) + '...' + token.substring(token.length - 8);
+                document.getElementById('credentialToken').textContent = displayed;
+                document.getElementById('credentialToken').title = 'Token Completo (64 chars): ' + token;
+                document.getElementById('credentialToken').style.cursor = 'help';
+            }
+
+            // Senha Temporária
+            if (tenant.tempPassword) {
+                document.getElementById('credentialPassword').textContent = '••••••••';
+            } else {
+                document.getElementById('credentialPassword').textContent = 'Altere ao fazer login';
+            }
+
+            // URL do Portal
+            const baseUrl = window.location.origin;
+            document.getElementById('credentialURL').innerHTML = 
+                `<a href="${baseUrl}/portal/" target="_blank" style="color: #667eea;">${baseUrl}/portal/</a>`;
+        }
+
+        // ===== ATUALIZAR COMANDO DE INSTALAÇÃO =====
+        function updateInstallCommand() {
+            const tenant = JSON.parse(localStorage.getItem('tenant') || '{}');
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            
+            const tenantId = tenant.tenant_id || tenant._id || 'TENANT_ID';
+            const email = tenant.email || user.email || 'seu@email.com';
+            const baseUrl = window.location.origin;
+            
+            const command = `curl -s ${baseUrl}/api/installer/script/${tenantId}?email=${email} | bash`;
+            
+            if (document.getElementById('installCommand')) {
+                document.getElementById('installCommand').textContent = command;
+            }
+        }
+
+        // ===== DOWNLOAD INSTALADOR PERSONALIZADO =====
+        function downloadInstallerScript() {
+            const tenant = JSON.parse(localStorage.getItem('tenant') || '{}');
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+            if (!tenant.tenant_id && !tenant._id) {
+                alert('❌ Erro: Informações de tenant não encontradas. Faça login novamente.');
+                return;
+            }
+
+            const tenantId = tenant.tenant_id || tenant._id;
+            const email = tenant.email || user.email || 'admin@localhost';
+            const baseUrl = window.location.origin;
+
+            // Construir URL de download
+            const downloadUrl = `${baseUrl}/api/installer/download/${tenantId}?email=${encodeURIComponent(email)}`;
+
+            // Criar link temporário e disparar download
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = `mk-edge-installer-${tenantId}.sh`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            console.log(`✅ Download iniciado: mk-edge-installer-${tenantId}.sh`);
+        }
+
+        // ===== COPIAR PARA ÁREA DE TRANSFERÊNCIA =====
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event ? event.target.closest('.copy-btn') : null;
+                if (btn) {
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = '<i class="fas fa-check"></i> Copiado!';
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                    }, 2000);
+                } else {
+                    alert('✅ Copiado para a área de transferência!');
+                }
+            }).catch(err => {
+                // Fallback para navegadores mais antigos
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                alert('✅ Copiado para a área de transferência!');
+            });
+        }
+
+        // ===== FORMATAR CNPJ =====
+        function formatCNPJ(cnpj) {
+            if (!cnpj) return '-';
+            cnpj = cnpj.replace(/\D/g, '');
+            if (cnpj.length !== 14) return cnpj;
+            return cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+        }
+
+        // ===== LOGOUT =====
+        function logout() {
+            localStorage.removeItem('portalToken');
+            localStorage.removeItem('tenant');
+            localStorage.removeItem('user');
+            window.location.href = '/portal/login';
+        }
+
+        // ===== ACESSAR PORTAL ADMIN =====
+        function accessPortal() {
+            const baseUrl = window.location.origin;
+            window.location.href = baseUrl + '/admin/dashboard.html';
+        }
+    </script>
+</body>
+</html>

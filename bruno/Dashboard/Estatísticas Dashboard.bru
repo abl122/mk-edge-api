@@ -1,0 +1,32 @@
+meta {
+  name: Estatísticas Dashboard
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/dashboard/stats?tenant_id={{tenantId}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  tenant_id: {{tenantId}}
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+docs {
+  Retorna estatísticas do dashboard.
+  
+  Estatísticas incluem:
+  - Total de clientes
+  - Chamados abertos
+  - Faturas pendentes
+  - Conexões ativas
+  - etc.
+  
+  Requer autenticação.
+}

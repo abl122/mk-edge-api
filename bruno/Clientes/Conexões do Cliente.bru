@@ -1,0 +1,38 @@
+meta {
+  name: Conexões do Cliente
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/connections/123?tenant_id={{tenantId}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  tenant_id: {{tenantId}}
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+docs {
+  Busca histórico de conexões de um cliente.
+  
+  Path params:
+  - client_id: ID do cliente (ou login)
+  
+  Retorna array com conexões:
+  - id: ID da conexão
+  - start_date: Data de início
+  - start_time: Hora de início
+  - end_date: Data de término
+  - end_time: Hora de término
+  - duration: Duração
+  - upload: Dados enviados
+  - download: Dados recebidos
+  
+  Requer autenticação.
+}

@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal do Cliente - {{TENANT_NOME}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, {{COR_PRIMARIA}} 0%, {{COR_SECUNDARIA}} 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .login-header .logo {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, {{COR_PRIMARIA}} 0%, {{COR_SECUNDARIA}} 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            font-size: 2rem;
+            color: white;
+        }
+
+        .login-header .logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+        }
+
+        .login-header h1 {
+            color: #333;
+            font-size: 1.8rem;
+            margin-bottom: 5px;
+        }
+
+        .login-header .tenant-name {
+            color: {{COR_PRIMARIA}};
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .login-header p {
+            color: #666;
+            font-size: 0.95rem;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: {{COR_PRIMARIA}};
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        /* Password Toggle */
+        .password-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .password-input-wrapper input {
+            padding-right: 45px;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: {{COR_PRIMARIA}};
+            font-size: 1.2em;
+            padding: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.3s ease;
+            z-index: 10;
+        }
+
+        .password-toggle:hover {
+            color: {{COR_SECUNDARIA}};
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, {{COR_PRIMARIA}} 0%, {{COR_SECUNDARIA}} 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-login:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.3);
+        }
+
+        .btn-login:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .alert {
+            padding: 12px 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }
+
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+        }
+
+        .footer-links {
+            text-align: center;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .footer-links a {
+            color: {{COR_PRIMARIA}};
+            text-decoration: none;
+            font-size: 0.9rem;
+            margin: 0 10px;
+        }
+
+        .footer-links a:hover {
+            text-decoration: underline;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 10px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid {{COR_PRIMARIA}};
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .contact-info {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            font-size: 0.85rem;
+        }
+
+        .contact-info p {
+            margin: 8px 0;
+            color: #666;
+        }
+
+        .contact-info a {
+            color: {{COR_PRIMARIA}};
+            text-decoration: none;
+        }
+
+        .contact-info a:hover {
+            text-decoration: underline;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <div class="logo" id="logo">
+                <i class="fas fa-user-circle"></i>
+            </div>
+            <h1>Portal do Cliente</h1>
+            <div class="tenant-name" id="tenantName">{{TENANT_NOME}}</div>
+            <p>Acesse sua conta para gerenciar serviços</p>
+        </div>
+
+        <div id="alert-container"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="login">Login / Email</label>
+                <input 
+                    type="text" 
+                    id="login" 
+                    placeholder="Digite seu login ou email"
+                    required
+                    autocomplete="username"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="senha">Senha</label>
+                <div class="password-input-wrapper">
+                    <input 
+                        type="password" 
+                        id="senha" 
+                        placeholder="Digite sua senha"
+                        required
+                        autocomplete="current-password"
+                    >
+                    <button type="button" class="password-toggle" 
+                            onclick="togglePortalPasswordVisibility('senha')" tabindex="-1">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-login" id="btnLogin">
+                <i class="fas fa-sign-in-alt"></i> Entrar
+            </button>
+        </form>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 10px; color: #666;">Autenticando...</p>
+        </div>
+
+        <div class="contact-info" id="contactInfo">
+            <p><strong>Precisa de ajuda?</strong></p>
+            <p><i class="fas fa-envelope"></i> <a href="mailto:{{TENANT_EMAIL}}">{{TENANT_EMAIL}}</a></p>
+            <p><i class="fas fa-phone"></i> <a href="tel:{{TENANT_TELEFONE}}">{{TENANT_TELEFONE}}</a></p>
+        </div>
+
+        <div class="footer-links">
+            <a href="/"><i class="fas fa-home"></i> Voltar</a>
+        </div>
+    </div>
+
+    <script>
+        // Configuração carregada do servidor (injetada via middleware)
+        const tenantConfig = window.tenantConfig || {
+            nome: '{{TENANT_NOME}}',
+            email: '{{TENANT_EMAIL}}',
+            telefone: '{{TENANT_TELEFONE}}',
+            cores: {
+                primaria: '{{COR_PRIMARIA}}',
+                secundaria: '{{COR_SECUNDARIA}}'
+            },
+            apiBase: window.location.origin
+        };
+
+        const API_URL = tenantConfig.apiBase;
+        const TENANT_ID = tenantConfig.id;
+
+        // Inicializa UI com dados do tenant
+        function initializeUI() {
+            document.getElementById('tenantName').textContent = tenantConfig.nome;
+            
+            const contactInfo = document.getElementById('contactInfo');
+            if (tenantConfig.email || tenantConfig.telefone) {
+                contactInfo.innerHTML = '<p><strong>Precisa de ajuda?</strong></p>';
+                if (tenantConfig.email) {
+                    contactInfo.innerHTML += `<p><i class="fas fa-envelope"></i> <a href="mailto:${tenantConfig.email}">${tenantConfig.email}</a></p>`;
+                }
+                if (tenantConfig.telefone) {
+                    contactInfo.innerHTML += `<p><i class="fas fa-phone"></i> <a href="tel:${tenantConfig.telefone}">${tenantConfig.telefone}</a></p>`;
+                }
+            }
+        }
+
+        // Login
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const login = document.getElementById('login').value.trim();
+            const senha = document.getElementById('senha').value;
+            const btnLogin = document.getElementById('btnLogin');
+            const loading = document.getElementById('loading');
+            const alertContainer = document.getElementById('alert-container');
+
+            if (!login || !senha) {
+                showAlert('Por favor, preencha todos os campos', 'error');
+                return;
+            }
+
+            btnLogin.disabled = true;
+            loading.classList.add('active');
+            alertContainer.innerHTML = '';
+
+            try {
+                const response = await fetch(`${API_URL}/api/auth/portal/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        cnpj: login,
+                        password: senha,
+                        tenant_id: TENANT_ID
+                    })
+                });
+
+                const data = await response.json();
+                
+                console.log('🔍 Login response:', { status: response.ok, data });
+
+                if (response.ok && data.success && data.token) {
+                    // Salvar tokens
+                    console.log('💾 Salvando token:', data.token.substring(0, 20) + '...');
+                    localStorage.setItem('accessToken', data.token);
+                    localStorage.setItem('refreshToken', data.refreshToken);
+                    localStorage.setItem('tenantId', TENANT_ID);
+                    localStorage.setItem('userData', JSON.stringify(data.tenant || data.user));
+                    
+                    console.log('✅ Token salvo, redirecionando...');
+                    showAlert('✅ Login realizado com sucesso!', 'success');
+                    
+                    setTimeout(() => {
+                        window.location.href = '/portal/';
+                    }, 1500);
+                } else {
+                    const errorMsg = data.error || data.message || 'Login ou senha incorretos';
+                    showAlert(errorMsg, 'error');
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                showAlert('Erro ao conectar ao servidor. Tente novamente.', 'error');
+            } finally {
+                btnLogin.disabled = false;
+                loading.classList.remove('active');
+            }
+        });
+
+        function showAlert(message, type) {
+            const alertContainer = document.getElementById('alert-container');
+            const icon = type === 'error' ? 'exclamation-circle' : 'check-circle';
+            alertContainer.innerHTML = `
+                <div class="alert alert-${type}">
+                    <i class="fas fa-${icon}"></i>
+                    ${message}
+                </div>
+            `;
+        }
+
+        function togglePortalPasswordVisibility(fieldId) {
+            const field = document.getElementById(fieldId);
+            const button = event.target.closest('.password-toggle');
+            const icon = button.querySelector('i');
+            
+            if (field.type === 'password') {
+                field.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                field.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+
+        // Inicializa ao carregar
+        document.addEventListener('DOMContentLoaded', initializeUI);
+    </script>
+</body>
+</html>
