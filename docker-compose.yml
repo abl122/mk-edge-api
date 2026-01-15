@@ -7,12 +7,29 @@ services:
       dockerfile: Dockerfile
     container_name: mk-edge-api
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=${PORT:-3333}
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:3333}
       - MONGODB_URL=mongodb://mongo:27017/mkedgetenants
+      - MONGODB_REQUIRED=${MONGODB_REQUIRED:-true}
+      - JWT_SECRET=${JWT_SECRET:-change-this-in-production}
+      - JWT_EXPIRE=${JWT_EXPIRE:-7d}
+      - JWT_REFRESH_EXPIRE=${JWT_REFRESH_EXPIRE:-30d}
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
+      - DEFAULT_TENANT_ID=${DEFAULT_TENANT_ID}
+      - DEFAULT_TENANT_NAME=${DEFAULT_TENANT_NAME}
+      - DEFAULT_TENANT_CNPJ=${DEFAULT_TENANT_CNPJ}
+      - DEFAULT_TENANT_EMAIL=${DEFAULT_TENANT_EMAIL}
+      - DEFAULT_TENANT_PHONE=${DEFAULT_TENANT_PHONE}
+      - DEFAULT_TENANT_DOMAIN=${DEFAULT_TENANT_DOMAIN}
+      - DEFAULT_AGENT_URL=${DEFAULT_AGENT_URL}
+      - DEFAULT_AGENT_TOKEN=${DEFAULT_AGENT_TOKEN}
+      - DEFAULT_ADMIN_LOGIN=${DEFAULT_ADMIN_LOGIN:-admin}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-admin123}
+      - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@example.com}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       mongo:
         condition: service_healthy
