@@ -4,44 +4,79 @@ meta {
   seq: 1
 }
 
-post {
-  url: {{baseUrl}}/client/{{clientId}}
+put {
+  url: {{baseUrl}}/client/brito
   body: json
   auth: none
 }
 
-params:query {
-  client_id: {{clientId}}
-}
-
 body:json {
   {
-    "observacao": "sim"
+    "nome": "Antonio Brito Lima",
+    "email": "brito@example.com",
+    "celular": "11987654321",
+    "fone": "1133334444",
+    "endereco_res": "Rua Exemplo",
+    "numero_res": "123",
+    "bairro_res": "Centro",
+    "complemento_res": "Apto 456",
+    "latitude": -3.0793407,
+    "longitude": -59.9687228,
+    "coordenadas": "-3.0793407,-59.9687228",
+    "new_cto": "CTO-001",
+    "observacao": "sim",
+    "rem_obs": "2026-01-16 10:00:00",
+    "date": "2026-01-16T10:00:00Z",
+    "automac": true,
+    "plano": "premium"
   }
 }
 
 docs {
-  Atualiza dados do cliente (ex: flag de observação).
+  Atualiza dados do cliente na tabela sis_cliente.
   
   Endpoint:
-  - POST /client/:id
+  - PUT /client/:login
   
   Path params:
-  - id: ID do cliente
+  - login: Login do cliente (obrigatório)
   
-  Body params:
-  - observacao: "sim" ou "nao" - marca cliente para atenção especial
+  Body params (todos opcionais):
+  - nome: string - Nome completo
+  - email: string - Email do cliente
+  - celular: string - Número celular (10-11 dígitos)
+  - fone: string - Número telefone (10-11 dígitos)
+  - endereco_res: string - Endereço residencial
+  - numero_res: string - Número da residência
+  - bairro_res: string - Bairro
+  - complemento_res: string - Complemento do endereço
+  - latitude: number - Latitude (-90 a 90)
+  - longitude: number - Longitude (-180 a 180)
+  - coordenadas: string - Coordenadas como "lat,lng"
+  - new_cto: string - CTO/Caixa Hermética
+  - caixa_herm: string - Alternativa para new_cto
+  - observacao: string - "sim" ou "nao"
+  - rem_obs: string - Data da observação (ISO format ou "YYYY-MM-DD HH:mm:ss")
+  - date: string - Data da observação (para parsing automático)
+  - automac: boolean - Ativa MAC automático (zera MAC e seta automac='sim')
+  - plano: string - Plano do cliente
   
   Response:
   {
-    "success": true,
-    "message": "Cliente atualizado com sucesso",
-    "client": {
-      "id": 20,
-      "login": "brito",
-      "nome": "Antonio Brito Lima",
-      "observacao": "sim",
-      "rem_obs": "2026-01-15 14:30:00"
-    }
+    "id": 20,
+    "login": "brito",
+    "nome": "Antonio Brito Lima",
+    "email": "brito@example.com",
+    "celular": "11987654321",
+    "fone": "1133334444",
+    "endereco_res": "Rua Exemplo",
+    "numero_res": "123",
+    "bairro_res": "Centro",
+    "complemento_res": "Apto 456",
+    "coordenadas": "-3.0793407,-59.9687228",
+    "caixa_herm": "CTO-001",
+    "observacao": "sim",
+    "rem_obs": "2026-01-16 10:00:00",
+    "plano": "premium"
   }
 }

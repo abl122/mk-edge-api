@@ -371,6 +371,52 @@ class ClientController {
         params.plano = updateData.plano;
       }
       
+      // Atualiza coordenadas (latitude/longitude ou string única)
+      if ((updateData.latitude !== undefined && updateData.longitude !== undefined) || 
+          updateData.coordenadas !== undefined) {
+        let coordenadas = updateData.coordenadas;
+        if (!coordenadas && updateData.latitude !== undefined && updateData.longitude !== undefined) {
+          coordenadas = `${updateData.latitude},${updateData.longitude}`;
+        }
+        if (coordenadas) {
+          fields.push('coordenadas = :coordenadas');
+          params.coordenadas = coordenadas;
+        }
+      }
+      
+      // Atualiza CTO/Caixa Hermética (aceita new_cto ou caixa_herm)
+      if (updateData.new_cto !== undefined || updateData.caixa_herm !== undefined) {
+        fields.push('caixa_herm = :caixa_herm');
+        params.caixa_herm = updateData.new_cto || updateData.caixa_herm;
+      }
+      
+      // Atualiza observação
+      if (updateData.observacao !== undefined) {
+        fields.push('observacao = :observacao');
+        params.observacao = updateData.observacao;
+        
+        // Se tem data, atualiza rem_obs
+        if (updateData.rem_obs !== undefined) {
+          fields.push('rem_obs = :rem_obs');
+          params.rem_obs = updateData.rem_obs;
+        } else if (updateData.date !== undefined) {
+          // Tenta parsear date se fornecido
+          try {
+            const parsedDate = new Date(updateData.date).toISOString().slice(0, 19).replace('T', ' ');
+            fields.push('rem_obs = :rem_obs');
+            params.rem_obs = parsedDate;
+          } catch (err) {
+            logger.warn('[ClientController.update] Erro ao parsear data:', err);
+          }
+        }
+      }
+      
+      // Atualiza automac (quando ativado, zera mac e seta automac='sim')
+      if (updateData.automac === true || updateData.automac === 'sim') {
+        fields.push('mac = NULL, automac = :automac');
+        params.automac = 'sim';
+      }
+      
       if (fields.length === 0) {
         return res.status(400).json({
           message: 'Nenhum campo para atualizar'

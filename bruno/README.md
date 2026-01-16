@@ -39,7 +39,7 @@ authToken = seu_token_aqui
 
 ### Clientes (Clientes/)
 - **GET /client/:id** - Buscar cliente por ID
-- **POST /client/:id** - **[NOVO]** Atualizar cliente (observação)
+- **PUT /client/:login** - **[ATUALIZADO]** Atualizar cliente (coordenadas, CTO, dados pessoais, etc)
 - **GET /connections/:client_id** - Listar conexões do cliente
 - **GET /invoices/:client_id** - Listar invoices (MOVED TO Faturas/)
 
@@ -120,6 +120,11 @@ GET /cto?cto_name=CTO-001           → Lista clientes em uma CTO
 ✅ Chamados agora ordenados por DESC (mais recentes primeiro)
 ✅ Endpoint POST /invoice/pay com suporte a campo coletor
 ✅ Endpoint GET /request/form/:clientId com carregamento de técnicos/assuntos
-✅ Endpoint POST /client/:id para atualizar observação
 ✅ Endpoint POST /invoice/pay para recebimento de faturas
 ✅ GET /requests/history com ordenação DESC por data
+✅ **[CORREÇÃO IMPORTANTE]** PUT /client/:login agora suporta:
+  - Coordenadas (latitude/longitude ou string única)
+  - CTO/Caixa Hermética (new_cto ou caixa_herm)
+  - Observação com data de lembrança (rem_obs)
+  - Automac (zera MAC e seta automac='sim')
+  - Todos os campos de endereço e dados pessoais

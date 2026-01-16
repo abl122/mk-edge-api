@@ -49,7 +49,7 @@ async function initializeDefaultTenant() {
     const tenantPhone = process.env.DEFAULT_TENANT_PHONE || '92991424261';
     const tenantDomain = process.env.DEFAULT_TENANT_DOMAIN || 'updata.com.br';
     const agentUrl = process.env.DEFAULT_AGENT_URL || 'https://provedor.updata.com.br/admin/addons/mk-edge/api.php';
-    const agentToken = process.env.DEFAULT_AGENT_TOKEN || '9f3c8a2e7b4d6a1c0e5f8d2b7a6c4e9f1b0a3d5c8e6f2a9b7d4c1e5f0a8b2c';
+    const agentToken = process.env.DEFAULT_AGENT_TOKEN || '34231c4733cb2c3d526490e5a1778835d7c30e3a88f1812528bedb353197be15';
 
     const tenantData = {
       _id: new mongoose.Types.ObjectId(tenantId),
