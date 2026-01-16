@@ -447,55 +447,154 @@ routes.get('/dashboard/stats', DashboardController.stats);
  * Buscar cliente
  * GET /client/:id
  */
-routes.get('/client/:id', ClientController.showById);
+routes.get('/client/:id', tenantMiddleware, ClientController.showById);
 
 /**
  * Atualizar cliente (observação, etc)
  * POST /client/:id
  * Body: { action: "update_client", observacao: "sim"|"nao", date: ISO_DATE }
  */
-routes.post('/client/:id', async (req, res) => {
+routes.post('/client/:id', tenantMiddleware, async (req, res) => {
   const { tenant } = req;
   const clientId = req.params.id;
-  const { action, observacao, date } = req.body;
+  const updateData = req.body;
   const MkAuthAgentService = require('./app/services/MkAuthAgentService');
+  const logger = require('./logger');
   
   try {
-    if (action !== 'update_client') {
+    // Monta query UPDATE dinâmica (compatível com antigo-backend)
+    const fields = [];
+    const params = { id: clientId };
+    
+    // Extrai e processa os campos
+    let { 
+      latitude, longitude, coordenadas,
+      new_cto, caixa_herm,
+      observacao, date, rem_obs,
+      nome, email, celular, fone,
+      endereco_res, numero_res, bairro_res, complemento_res,
+      automac, plano
+    } = updateData;
+    
+    // Processa coordenadas
+    if ((latitude !== undefined && longitude !== undefined) || coordenadas !== undefined) {
+      let coordStr = coordenadas;
+      if (!coordStr && latitude !== undefined && longitude !== undefined) {
+        coordStr = `${latitude},${longitude}`;
+      }
+      if (coordStr) {
+        fields.push('coordenadas = ?');
+        params.coordenadas = coordStr;
+      }
+    }
+    
+    // Processa CTO (aceita new_cto ou caixa_herm)
+    if (new_cto !== undefined || caixa_herm !== undefined) {
+      fields.push('caixa_herm = ?');
+      params.caixa_herm = new_cto || caixa_herm;
+    }
+    
+    // Processa observação
+    if (observacao !== undefined && ['sim', 'nao'].includes(observacao)) {
+      fields.push('observacao = ?');
+      params.observacao = observacao;
+      
+      // Processa data da observação
+      let dataFormatada = rem_obs;
+      if (!dataFormatada && date) {
+        try {
+          dataFormatada = new Date(date).toISOString().slice(0, 19).replace('T', ' ');
+        } catch (err) {
+          logger.warn('[Client.update] Erro ao parsear data:', err);
+        }
+      }
+      
+      if (dataFormatada) {
+        fields.push('rem_obs = ?');
+        params.rem_obs = dataFormatada;
+      } else if (observacao === 'nao') {
+        fields.push('rem_obs = NULL');
+      }
+    }
+    
+    // Processa campos pessoais
+    if (nome !== undefined) {
+      fields.push('nome = ?');
+      params.nome = nome;
+    }
+    if (email !== undefined) {
+      fields.push('email = ?');
+      params.email = email;
+    }
+    if (celular !== undefined) {
+      fields.push('celular = ?');
+      params.celular = celular;
+    }
+    if (fone !== undefined) {
+      fields.push('fone = ?');
+      params.fone = fone;
+    }
+    
+    // Processa endereço
+    if (endereco_res !== undefined) {
+      fields.push('endereco_res = ?');
+      params.endereco_res = endereco_res;
+    }
+    if (numero_res !== undefined) {
+      fields.push('numero_res = ?');
+      params.numero_res = numero_res;
+    }
+    if (bairro_res !== undefined) {
+      fields.push('bairro_res = ?');
+      params.bairro_res = bairro_res;
+    }
+    if (complemento_res !== undefined) {
+      fields.push('complemento_res = ?');
+      params.complemento_res = complemento_res;
+    }
+    
+    // Processa automac
+    if (automac === true || automac === 'sim') {
+      fields.push('mac = NULL');
+      fields.push('automac = ?');
+      params.automac = 'sim';
+    }
+    
+    // Processa plano
+    if (plano !== undefined) {
+      fields.push('plano = ?');
+      params.plano = plano;
+    }
+    
+    if (fields.length === 0) {
       return res.status(400).json({
-        error: 'Action não reconhecida',
-        message: 'Use action: "update_client"'
+        error: 'Nenhum campo para atualizar'
       });
     }
     
-    if (!observacao || !['sim', 'nao'].includes(observacao)) {
-      return res.status(400).json({
-        error: 'Observacao inválida',
-        message: 'Use "sim" ou "nao"'
-      });
+    // Monta query com WHERE (suporta id ou login)
+    let whereClause = 'WHERE id = ?';
+    let whereValue = clientId;
+    
+    // Se clientId não é número, tenta como login
+    if (isNaN(clientId)) {
+      whereClause = 'WHERE login = ?';
+      whereValue = clientId;
     }
     
-    // Formata data - se "nao", deixa NULL
-    let dataFormatada = null;
-    if (observacao === 'sim' && date) {
-      dataFormatada = new Date(date).toISOString().slice(0, 19).replace('T', ' ');
-      console.log('📅 Data formatada:', dataFormatada);
-    }
+    const sql = `UPDATE sis_cliente SET ${fields.join(', ')} ${whereClause}`;
     
-    // UPDATE sis_cliente
-    let sql = `UPDATE sis_cliente SET observacao = ?`;
-    const valores = [observacao];
-    
-    // Se tem data, atualiza rem_obs
-    if (dataFormatada) {
-      sql += `, rem_obs = ?`;
-      valores.push(dataFormatada);
-    } else if (observacao === 'nao') {
-      sql += `, rem_obs = NULL`;
-    }
-    
-    sql += ` WHERE id = ?`;
-    valores.push(clientId);
+    // Extrai valores na ordem dos fields
+    const valores = [];
+    fields.forEach(f => {
+      if (f.includes('NULL')) {
+        // Campo com NULL não precisa de valor
+        return;
+      }
+      const fieldName = f.split(' = ')[0].trim();
+      valores.push(params[fieldName]);
+    });
+    valores.push(whereValue);
     
     console.log('📝 SQL:', sql);
     console.log('📊 Parâmetros:', valores);
@@ -506,14 +605,38 @@ routes.post('/client/:id', async (req, res) => {
       valores
     );
     
-    console.log('✅ Cliente atualizado!', result);
+    console.log('✅ [Client.update] Resultado do agente:', result);
+    
+    // Busca os dados atualizados do cliente
+    let updatedClient = null;
+    try {
+      const isNumeric = !isNaN(clientId) && !isNaN(parseFloat(clientId));
+      const operation = isNumeric ? 'buscarCliente' : 'buscarClientePorLogin';
+      const clientResult = await MkAuthAgentService.execute(tenant, operation, clientId);
+      
+      if (clientResult.data && clientResult.data.length > 0) {
+        updatedClient = clientResult.data[0];
+        console.log('📦 [Client.update] Cliente após update:', {
+          endereco_res: updatedClient.endereco_res,
+          numero_res: updatedClient.numero_res,
+          nome: updatedClient.nome
+        });
+      }
+    } catch (err) {
+      console.warn('⚠️ [Client.update] Erro ao buscar cliente atualizado:', err.message);
+    }
+    
+    logger.info('[Client.update] Cliente atualizado com sucesso', {
+      clientId,
+      updatedFields: Object.keys(updateData).filter(k => updateData[k] !== undefined)
+    });
     
     return res.json({
       success: true,
-      message: `Observação ${observacao === 'sim' ? 'ativada' : 'desativada'} para cliente ${clientId}`,
+      message: `Cliente ${clientId} atualizado com sucesso`,
       client_id: clientId,
-      observacao,
-      rem_obs: dataFormatada
+      updated_fields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
+      client: updatedClient || undefined
     });
     
   } catch (error) {

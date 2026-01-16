@@ -14,7 +14,7 @@ const logger = require('../../logger');
 class ClientController {
   
   /**
-   * Busca detalhes de um cliente por ID
+   * Busca detalhes de um cliente por ID ou Login
    * 
    * GET /client/:id
    */
@@ -35,8 +35,10 @@ class ClientController {
         tenant_agente_url: tenant?.agente?.url
       });
       
-      // Busca cliente por ID
-      const result = await MkAuthAgentService.execute(tenant, 'buscarCliente', id);
+      // Busca cliente por ID ou Login
+      const isNumeric = !isNaN(id) && !isNaN(parseFloat(id));
+      const operation = isNumeric ? 'buscarCliente' : 'buscarClientePorLogin';
+      const result = await MkAuthAgentService.execute(tenant, operation, id);
       
       console.log('\n🔍 [DEBUG] ClientController.showById result:', {
         type: typeof result,

@@ -222,12 +222,19 @@ class MkAuthAgentService {
     
     /**
      * Busca cliente por login (alternativa para showLegacy)
-     * Retorna apenas o ID e campos básicos
+     * Retorna TODOS os campos como buscarCliente
      */
     buscarClientePorLogin: (login) => {
       const safeLogin = (login || '').replace(/['"\\]/g, '');
       return {
-        sql: `SELECT id, login, nome, cpf_cnpj, plano, tipo
+        sql: `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
+                     cli_ativado, bloqueado, observacao, rem_obs,
+                     ip, mac, automac, equipamento, ssid,
+                     endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
+                     fone, celular, ramal, email,
+                     coordenadas, caixa_herm, porta_olt, porta_splitter,
+                     status_corte, cadastro, data_ins,
+                     tit_abertos, tit_vencidos
               FROM sis_cliente 
               WHERE login = '${safeLogin}' 
               LIMIT 1`,
