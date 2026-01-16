@@ -1,0 +1,44 @@
+meta {
+  name: Buscar CTOs Próximas
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/cto/-3.0793407/-59.9687228
+  body: none
+  auth: none
+}
+
+docs {
+  Busca CTOs (Caixas Hermétcas) próximas com base em coordenadas.
+  Retorna CTOs dentro de um raio de aproximadamente 350 metros.
+  
+  Endpoints:
+  - GET /cto/:latitude/:longitude
+  - GET /cto/:lat/:lng (alias)
+  
+  Path params:
+  - latitude: Latitude da coordenada (-3.0793407)
+  - longitude: Longitude da coordenada (-59.9687228)
+  
+  Response:
+  [
+    {
+      "id": 1,
+      "nome": "CTO-001",
+      "latitude": -3.0793407,
+      "longitude": -59.9687228,
+      "connection_amount": 45,
+      "distance": 0.025
+    },
+    {
+      "id": 2,
+      "nome": "CTO-002",
+      "latitude": -3.0800000,
+      "longitude": -59.9700000,
+      "connection_amount": 32,
+      "distance": 0.120
+    }
+  ]
+}

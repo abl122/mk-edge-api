@@ -47,6 +47,11 @@ authToken = seu_token_aqui
 - **GET /invoices/:client_id** - Listar faturas pendentes e pagas
 - **POST /invoice/pay** - Marcar fatura como pago
 
+### CTOs (CTOs/) - **[NOVO]**
+- **GET /cto/:latitude/:longitude** - Buscar CTOs próximas (raio ~350m)
+- **GET /cto/:lat/:lng** - Alias com lat/lng
+- **GET /cto?cto_name=CTO-001** - Buscar CTO específica e seus clientes
+
 ### Dashboard (Dashboard/)
 - **GET /dashboard/stats** - Estatísticas do dashboard
 
@@ -80,11 +85,23 @@ GET /invoices/:clientId              → Lista faturas
 POST /invoice/pay                    → Marca como pago
 ```
 
-### 4. Gerenciar Cliente
+### 4. Gerenciar Faturas
+```
+GET /invoices/:clientId              → Lista faturas
+POST /invoice/pay                    → Marca como pago
+```
+
+### 5. Gerenciar Cliente
 ```
 GET /client/:id                      → Dados do cliente
 POST /client/:id                     → Atualiza observação
 GET /connections/:clientId           → Conexões
+```
+
+### 6. Buscar CTOs Próximas
+```
+GET /cto/:latitude/:longitude        → Lista CTOs dentro de 350m
+GET /cto?cto_name=CTO-001           → Lista clientes em uma CTO
 ```
 
 ## Notas Importantes
@@ -94,11 +111,14 @@ GET /connections/:clientId           → Conexões
 - **Parâmetros**: Usar query params (?tenant_id=xxx) ou path params (/client/20)
 - **Datas**: Usar formato ISO 8601 ou "YYYY-MM-DD HH:MM"
 - **Tabelas**: sis_suporte (suporte), sis_solic (instalação), sis_msg (mensagens)
+- **CTOs**: Usa tabela mp_caixa (caixas hermétcas) com cálculo de distância geográfica
 
-## Atualizações Recentes (15/01/2026)
+## Atualizações Recentes (16/01/2026)
 
-✅ Endpoint POST /request criado com auto-geração de chamadoNumber
-✅ Endpoint POST /messages implementado para adicionar notas
+✅ Endpoint GET /cto/:latitude/:longitude criado para buscar CTOs próximas
+✅ Endpoint GET /cto para buscar CTO específica
+✅ Chamados agora ordenados por DESC (mais recentes primeiro)
+✅ Endpoint POST /invoice/pay com suporte a campo coletor
 ✅ Endpoint GET /request/form/:clientId com carregamento de técnicos/assuntos
 ✅ Endpoint POST /client/:id para atualizar observação
 ✅ Endpoint POST /invoice/pay para recebimento de faturas

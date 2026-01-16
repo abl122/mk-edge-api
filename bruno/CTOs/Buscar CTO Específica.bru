@@ -1,0 +1,45 @@
+meta {
+  name: Buscar CTO Específica
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/cto?cto_name=CTO-001
+  body: none
+  auth: none
+}
+
+params:query {
+  cto_name: CTO-001
+}
+
+docs {
+  Busca uma CTO específica e lista os clientes conectados nela.
+  
+  Endpoint:
+  - GET /cto?cto_name=CTO-001
+  
+  Query params:
+  - cto_name: Nome da CTO (obrigatório)
+  
+  Response:
+  {
+    "nome": "CTO-001",
+    "clientes_ativos": 45,
+    "clientes": [
+      {
+        "id": 20,
+        "login": "brito",
+        "nome": "Antonio Brito Lima",
+        "plano": "Rural2",
+        "celular": "(92)991424261",
+        "endereco_res": "Rua Wolfando Nogueira",
+        "numero_res": "29",
+        "bairro_res": "Coroado",
+        "cli_ativado": "s"
+      },
+      ...
+    ]
+  }
+}
