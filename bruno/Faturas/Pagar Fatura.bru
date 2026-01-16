@@ -1,0 +1,65 @@
+meta {
+  name: Pagar Fatura
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/invoice/pay
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "invoice_id": "134185",
+    "titulo": "134185",
+    "data_pagamento": "2026-01-15 14:30",
+    "formapag": "dinheiro",
+    "valor_pago": "0.20",
+    "acrescimo": "0.00",
+    "multa_mora": "0.00",
+    "desconto": "0.00",
+    "insnext": "nada",
+    "excluir_efipay": "s",
+    "coletor": "brito",
+    "observacao": ""
+  }
+}
+
+docs {
+  Marca uma fatura como pago/recebido.
+  
+  Endpoint:
+  - POST /invoice/pay
+  
+  Body params:
+  - invoice_id: ID da fatura (pode usar titulo ou uuid_lanc também)
+  - titulo: Alternativa para identificar a fatura
+  - uuid_lanc: UUID alternativo para identificar a fatura
+  - data_pagamento: Data/hora no formato "YYYY-MM-DD HH:MM"
+  - formapag: Forma de pagamento (dinheiro, cartao, boleto, cheque, pix, etc)
+  - valor_pago: Valor que foi efetivamente pago
+  - acrescimo: Acréscimo cobrado (juros, multa, etc)
+  - multa_mora: Multa por atraso
+  - desconto: Desconto concedido
+  - coletor: Usuário que recebeu o pagamento (login)
+  - observacao: Observações sobre o pagamento (opcional)
+  - insnext: "nada" ou "sim" - adicionar na próxima fatura
+  - excluir_efipay: "s" para excluir da EfiPay
+  
+  Response:
+  {
+    "success": true,
+    "message": "Fatura paga com sucesso",
+    "invoice": {
+      "id": "134185",
+      "uuid_lanc": "uuid-xxx",
+      "status": "pago",
+      "datapag": "2026-01-15 14:30",
+      "valor": "0.20",
+      "valorpag": "0.20",
+      "formapag": "dinheiro"
+    }
+  }
+}

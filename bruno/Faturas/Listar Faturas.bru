@@ -1,0 +1,55 @@
+meta {
+  name: Listar Faturas
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/invoices/{{clientId}}
+  body: none
+  auth: none
+}
+
+params:query {
+  client_id: {{clientId}}
+}
+
+docs {
+  Lista todas as faturas (pendentes e pagas) de um cliente.
+  
+  Endpoint:
+  - GET /invoices/:client_id
+  
+  Path params:
+  - client_id: ID ou login do cliente (ex: 20)
+  
+  Response:
+  {
+    "observacao": "nao|sim",
+    "rem_obs": "2025-12-12 00:00:00",
+    "invoices": {
+      "pending_invoices": [
+        {
+          "titulo": "134185",
+          "content": {
+            "titulo": "134185",
+            "uuid_lanc": "uuid-xxx",
+            "tipo": "boleto",
+            "valor": "0.20",
+            "status": "aberto|vencido",
+            "descricao": "Fatura 15/01",
+            "boleto": {
+              "linhadig": "12345.67890 12345.678901 12345.678901 1 12345678901234",
+              "url": "https://provedor.updata.com.br/boleto/..."
+            },
+            "pix": {
+              "brcode": "...",
+              "qr_code": "..."
+            }
+          }
+        }
+      ],
+      "paid_invoices": [...]
+    }
+  }
+}

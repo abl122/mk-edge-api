@@ -1,0 +1,47 @@
+meta {
+  name: Atualizar Cliente
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/client/{{clientId}}
+  body: json
+  auth: none
+}
+
+params:query {
+  client_id: {{clientId}}
+}
+
+body:json {
+  {
+    "observacao": "sim"
+  }
+}
+
+docs {
+  Atualiza dados do cliente (ex: flag de observação).
+  
+  Endpoint:
+  - POST /client/:id
+  
+  Path params:
+  - id: ID do cliente
+  
+  Body params:
+  - observacao: "sim" ou "nao" - marca cliente para atenção especial
+  
+  Response:
+  {
+    "success": true,
+    "message": "Cliente atualizado com sucesso",
+    "client": {
+      "id": 20,
+      "login": "brito",
+      "nome": "Antonio Brito Lima",
+      "observacao": "sim",
+      "rem_obs": "2026-01-15 14:30:00"
+    }
+  }
+}

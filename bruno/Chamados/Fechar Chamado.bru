@@ -1,0 +1,69 @@
+meta {
+  name: Fechar Chamado
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/request/10446?tenant_id={{tenantId}}
+  body: json
+  auth: bearer
+}
+
+params:query {
+  tenant_id: {{tenantId}}
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "action": "close_request",
+    "tipo": "suporte",
+    "closingNote": "Problema resolvido com sucesso",
+    "closingDate": "2026-01-15T22:58:47.759Z"
+  }
+}
+
+docs {
+  Fecha/atualiza um chamado (tipo Suporte ou Instalação).
+  
+  Endpoints:
+  - POST /request/:id
+  
+  Path params:
+  - id: ID do chamado (ex: 10446)
+  
+  Body params para Tipo SUPORTE:
+  - action: "close_request" (obrigatório)
+  - tipo: "suporte" (obrigatório)
+  - closingNote: texto com o motivo do fechamento (opcional)
+  - closingDate: data/hora do fechamento em ISO format (opcional, padrão = agora)
+  
+  Body params para Tipo INSTALAÇÃO:
+  - action: "close_request" (obrigatório)
+  - tipo: "instalacao" (obrigatório)
+  - isVisited: boolean - foi visitado? (opcional)
+  - isInstalled: boolean - foi instalado? (opcional)
+  - isAvailable: boolean - está disponível? (opcional)
+  - closingDate: data/hora do fechamento em ISO format (opcional, padrão = agora)
+  
+  Response (sucesso):
+  {
+    "success": true,
+    "message": "Chamado 10446 atualizado com sucesso",
+    "chamado_id": "10446",
+    "novo_status": "concluido",
+    "data_fechamento": "2026-01-15 15:05:30"
+  }
+  
+  Requer autenticação.
+  
+  Exemplo de status:
+  - concluido: Define a data de fechamento automaticamente
+  - cancelado: Cancela o chamado
+  - em_andamento: Marca como em andamento
+  - aguardando_cliente: Aguardando resposta do cliente
+}
