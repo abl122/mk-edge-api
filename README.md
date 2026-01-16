@@ -282,6 +282,7 @@ Para dúvidas, consulte a documentação em `/doc` ou abra uma issue.
 
 ### Chamados/Requests
 - `GET /request/:id/:type` - Detalhes do chamado
+- `POST /request/:id` - Atualizar/fechar chamado
 - `GET /request/form/:login` - Formulário de novo chamado
 - `GET /request/:login` - Lista de chamados do cliente
 - `GET /request/:login/overdue` - Chamados atrasados

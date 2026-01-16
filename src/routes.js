@@ -313,10 +313,120 @@ routes.post('/requests', RequestController.index);
 routes.get('/requests/overdue', RequestController.overdue);
 
 /**
+ * Carrega dados do formulário de novo chamado (por login)
+ * GET /request/form/:login
+ * ⚠️ DEVE ESTAR ANTES DE /request/:id/:request_type
+ * Retorna: { opcoes: { tecnicos: [...], assuntos: [...] } }
+ */
+routes.get('/request/form/:clientId', async (req, res) => {
+  const { clientId } = req.params;
+  const { tenant } = req;
+  const MkAuthAgentService = require('./app/services/MkAuthAgentService');
+  
+  try {
+    // Busca técnicos do banco via agente
+    console.log(`📱 [Request.form] Carregando técnicos para clientId=${clientId}...`);
+    let tecnicos = [];
+    
+    try {
+      const tecnicos_result = await MkAuthAgentService.execute(
+        tenant,
+        'listarTecnicos'
+      );
+      
+      if (tecnicos_result?.data && Array.isArray(tecnicos_result.data)) {
+        tecnicos = tecnicos_result.data.map(t => ({
+          value: t.id,
+          label: t.nome
+        }));
+        console.log(`✅ [Request.form] ${tecnicos.length} técnicos carregados`);
+      } else {
+        console.warn(`⚠️ [Request.form] Nenhum técnico no resultado:`, tecnicos_result);
+      }
+    } catch (techError) {
+      console.error(`❌ [Request.form] Erro ao buscar técnicos:`, techError.message);
+      throw new Error(`Erro ao buscar técnicos: ${techError.message}`);
+    }
+    
+    // Se nenhum técnico encontrado
+    if (tecnicos.length === 0) {
+      console.warn(`❌ [Request.form] Nenhum técnico encontrado`);
+      return res.status(500).json({
+        error: 'Nenhum técnico disponível',
+        message: 'Não foi possível carregar a lista de técnicos'
+      });
+    }
+    
+    // Busca assuntos do banco
+    console.log(`📝 [Request.form] Carregando assuntos...`);
+    let assuntos = [];
+    
+    try {
+      const queryDef = MkAuthAgentService.queries.listarAssuntos();
+      const assuntos_result = await MkAuthAgentService.sendToAgent(
+        tenant,
+        queryDef.sql,
+        queryDef.params
+      );
+      
+      if (assuntos_result?.data && Array.isArray(assuntos_result.data)) {
+        assuntos = assuntos_result.data.map(a => a.nome);
+        console.log(`✅ [Request.form] ${assuntos.length} assuntos carregados do banco`);
+      } else {
+        console.warn(`⚠️ [Request.form] Nenhum assunto no resultado, usando padrão`);
+        assuntos = [
+          'Conexao',
+          'Instalação',
+          'Mudança de Endereço',
+          'Mudança de Plano',
+          'Suporte Técnico',
+          'Cobrança',
+          'Outro'
+        ];
+      }
+    } catch (assuntosError) {
+      console.warn(`⚠️ [Request.form] Erro ao buscar assuntos do banco:`, assuntosError.message);
+      console.log(`   Usando assuntos padrão como fallback`);
+      assuntos = [
+        'Conexao',
+        'Instalação',
+        'Mudança de Endereço',
+        'Mudança de Plano',
+        'Suporte Técnico',
+        'Cobrança',
+        'Outro'
+      ];
+    }
+    
+    return res.json({
+      opcoes: {
+        tecnicos,
+        assuntos
+      }
+    });
+    
+  } catch (error) {
+    console.error(`❌ [Request.form] Erro final:`, error.message);
+    
+    return res.status(500).json({
+      error: 'Erro ao carregar dados do formulário',
+      message: error.message
+    });
+  }
+});
+
+/**
  * Buscar chamado específico (formato legado)
  * GET /request/:id/:request_type
  */
 routes.get('/request/:id/:request_type', RequestController.showLegacy);
+
+/**
+ * Atualizar chamado (fechar, mudar status, etc)
+ * POST /request/:id
+ * Body: { status, motivo_fechar, observacao, atendente, etc }
+ */
+routes.post('/request/:id', RequestController.update);
 
 /**
  * Estatísticas do dashboard
@@ -329,6 +439,83 @@ routes.get('/dashboard/stats', DashboardController.stats);
  * GET /client/:id
  */
 routes.get('/client/:id', ClientController.showById);
+
+/**
+ * Atualizar cliente (observação, etc)
+ * POST /client/:id
+ * Body: { action: "update_client", observacao: "sim"|"nao", date: ISO_DATE }
+ */
+routes.post('/client/:id', async (req, res) => {
+  const { tenant } = req;
+  const clientId = req.params.id;
+  const { action, observacao, date } = req.body;
+  const MkAuthAgentService = require('./app/services/MkAuthAgentService');
+  
+  try {
+    if (action !== 'update_client') {
+      return res.status(400).json({
+        error: 'Action não reconhecida',
+        message: 'Use action: "update_client"'
+      });
+    }
+    
+    if (!observacao || !['sim', 'nao'].includes(observacao)) {
+      return res.status(400).json({
+        error: 'Observacao inválida',
+        message: 'Use "sim" ou "nao"'
+      });
+    }
+    
+    // Formata data - se "nao", deixa NULL
+    let dataFormatada = null;
+    if (observacao === 'sim' && date) {
+      dataFormatada = new Date(date).toISOString().slice(0, 19).replace('T', ' ');
+      console.log('📅 Data formatada:', dataFormatada);
+    }
+    
+    // UPDATE sis_cliente
+    let sql = `UPDATE sis_cliente SET observacao = ?`;
+    const valores = [observacao];
+    
+    // Se tem data, atualiza rem_obs
+    if (dataFormatada) {
+      sql += `, rem_obs = ?`;
+      valores.push(dataFormatada);
+    } else if (observacao === 'nao') {
+      sql += `, rem_obs = NULL`;
+    }
+    
+    sql += ` WHERE id = ?`;
+    valores.push(clientId);
+    
+    console.log('📝 SQL:', sql);
+    console.log('📊 Parâmetros:', valores);
+    
+    const result = await MkAuthAgentService.sendToAgent(
+      tenant,
+      sql,
+      valores
+    );
+    
+    console.log('✅ Cliente atualizado!', result);
+    
+    return res.json({
+      success: true,
+      message: `Observação ${observacao === 'sim' ? 'ativada' : 'desativada'} para cliente ${clientId}`,
+      client_id: clientId,
+      observacao,
+      rem_obs: dataFormatada
+    });
+    
+  } catch (error) {
+    console.error('[Client.update]', error.message);
+    
+    return res.status(500).json({
+      error: 'Erro ao atualizar cliente',
+      message: error.message
+    });
+  }
+});
 
 /**
  * Buscar faturas por client_id
@@ -466,6 +653,13 @@ routes.get('/invoices/:client_id', async (req, res) => {
 });
 
 /**
+ * Dar baixa em fatura (marcar como pago)
+ * POST /invoice/pay
+ * Body: {invoice_id, titulo, uuid_lanc, data_pagamento, formapag, valor_pago, acrescimo, multa_mora, desconto, observacao, insnext, excluir_efipay}
+ */
+routes.post('/invoice/pay', tenantMiddleware, InvoiceController.payInvoice);
+
+/**
  * Buscar conexões de um cliente por ID
  * GET /connections/:client_id
  * Retorna: Array direto de conexões formatadas
@@ -553,7 +747,8 @@ routes.get('/requests/history', async (req, res) => {
     const queryDef = MkAuthAgentService.queries.listarChamados({
       login: client.login,  // ✅ FILTRA por login
       isAdmin: true,
-      tecnico: null
+      tecnico: null,
+      sortMode: sort_mode   // ✅ PASSA o sort_mode (DESC por padrão)
     });
     
     const result = await MkAuthAgentService.sendToAgent(req.tenant, queryDef.sql, queryDef.params);
@@ -615,6 +810,198 @@ routes.get('/requests/history', async (req, res) => {
  * GET /search
  */
 routes.get('/search', SearchController.index);
+
+/**
+ * Criar novo chamado
+ * POST /request
+ * Body: { client_id, login, assunto, tecnico, prioridade, descricao, visita, login_atend }
+ */
+routes.post('/request', async (req, res) => {
+  const { tenant } = req;
+  const { client_id, login, assunto, tecnico, prioridade, msg, atendente, visita, login_atend } = req.body;
+  const MkAuthAgentService = require('./app/services/MkAuthAgentService');
+  
+  try {
+    console.log('🔍 [DEBUG] Payload recebido:');
+    console.log('   - client_id:', client_id);
+    console.log('   - login:', login);
+    console.log('   - atendente:', atendente);
+    console.log('   - msg:', msg);
+    
+    // Validações
+    if (!client_id || !login || !assunto || !tecnico || !prioridade) {
+      return res.status(400).json({
+        error: 'Campos obrigatórios faltando: client_id, login, assunto, tecnico, prioridade'
+      });
+    }
+    
+    // ✅ BUSCA: Nome do cliente + email + ramal
+    let nomeCliente = '';
+    let emailCliente = null;
+    let ramalCliente = null;
+    try {
+      const clienteResult = await MkAuthAgentService.execute(tenant, 'buscarCliente', client_id);
+      const cliente = clienteResult?.data?.[0];
+      if (cliente) {
+        nomeCliente = cliente.nome || '';
+        emailCliente = cliente.email || null;
+        ramalCliente = cliente.ramal || null;
+        console.log(`✅ Cliente encontrado: ${nomeCliente}`);
+        console.log(`   - Email: ${emailCliente}`);
+        console.log(`   - Ramal: ${ramalCliente}`);
+      }
+    } catch (clientError) {
+      console.warn(`⚠️ Erro ao buscar cliente ${client_id}:`, clientError.message);
+    }
+    
+    // ✅ USA o atendente fornecido no payload (não busca mais!)
+    const nomeAtendente = atendente || 'App';
+    const loginAtendenteReal = login_atend || login;
+    
+    console.log(`✅ Atendente a ser inserido: ${nomeAtendente}`);
+    console.log(`✅ Login atendente: ${loginAtendenteReal}`);
+    
+    // Monta query INSERT para sis_suporte (SEM descricao - vai para sis_msg)
+    const agora = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const visitaFormatada = visita || agora; // Usa data fornecida ou agora
+    
+    // ✅ GERA o chamadoNumber (formato: ddMMyyHHmmss + milissegundos)
+    const now = new Date();
+    const padZero = (n) => String(n).padStart(2, '0');
+    const dia = padZero(now.getDate());
+    const mes = padZero(now.getMonth() + 1);
+    const ano = padZero(now.getFullYear().toString().slice(-2));
+    const hora = padZero(now.getHours());
+    const minuto = padZero(now.getMinutes());
+    const segundo = padZero(now.getSeconds());
+    const ms = padZero(Math.floor(now.getMilliseconds() / 10)); // 2 dígitos dos milissegundos
+    const chamadoNumber = `${dia}${mes}${ano}${hora}${minuto}${segundo}${ms}`;
+    
+    // ✅ GERA uuid_suporte (UUID v4)
+    const crypto = require('crypto');
+    const uuidSuporte = `${crypto.randomUUID()}`;
+    
+    console.log('🔢 Chamado number gerado:', chamadoNumber);
+    console.log('🔐 UUID suporte gerado:', uuidSuporte);
+    
+    // ✅ CORREÇÃO: Adicionado uuid_suporte, email e ramal ao INSERT
+    const sql = `INSERT INTO sis_suporte 
+                 (login, nome, chamado, uuid_suporte, assunto, tecnico, prioridade, status, visita, abertura, login_atend, atendente, email, ramal)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    
+    const valores = [
+      login,                           // login
+      nomeCliente,                     // nome (do cliente buscado)
+      chamadoNumber,                   // chamado (gerado acima)
+      uuidSuporte,                     // uuid_suporte (gerado acima)
+      assunto,                        // assunto
+      parseInt(tecnico) || 0,         // tecnico (como número)
+      prioridade,                     // prioridade
+      'aberto',                       // status padrão
+      visitaFormatada,                // visita
+      agora,                          // abertura
+      loginAtendenteReal,             // login_atend (do atendente ou do cliente)
+      nomeAtendente,                  // atendente (nome buscado ou login)
+      emailCliente,                   // email (do cliente)
+      ramalCliente                    // ramal (do cliente)
+    ];
+    
+    console.log('📝 SQL INSERT (sis_suporte):', sql);
+    console.log('📊 Parâmetros:', valores);
+    
+    const result = await MkAuthAgentService.sendToAgent(
+      tenant,
+      sql,
+      valores
+    );
+    
+    console.log('✅ Chamado criado!', result);
+    
+    // ✅ Extrai o ID do chamado criado (pode vir como insert_id, id, ou lastInsertId)
+    const chamadoRecordId = result?.insert_id || result?.lastInsertId || result?.id;
+    console.log('🔍 [DEBUG] chamadoRecordId extraído:', chamadoRecordId);
+    console.log('🔍 [DEBUG] Usando chamadoNumber já gerado:', chamadoNumber);
+    
+    // ✅ Se houver mensagem (msg), cria uma nota em sis_msg (igual MessageController.store)
+    if (msg && msg.trim()) {
+      console.log('📝 Criando mensagem inicial em sis_msg...');
+      console.log('   - chamadoNumber:', chamadoNumber);
+      console.log('   - msg:', msg.trim());
+      
+      // Mesmo padrão do MessageController.store()
+      const camposMsg = ['chamado', 'msg', 'tipo'];
+      const valoresMsg = [chamadoNumber, msg.trim(), 'mk-edge'];
+      
+      // Adiciona data
+      camposMsg.push('msg_data');
+      valoresMsg.push(agora);
+      
+      // ✅ Adiciona login (OBRIGATÓRIO)
+      camposMsg.push('login');
+      valoresMsg.push(login);
+      
+      // ✅ Adiciona atendente (OBRIGATÓRIO)
+      camposMsg.push('atendente');
+      valoresMsg.push(nomeAtendente);
+      
+      const placeholdersMsg = camposMsg.map(() => '?').join(', ');
+      const sqlMsg = `INSERT INTO sis_msg (${camposMsg.join(', ')}) VALUES (${placeholdersMsg})`;
+      
+      console.log('📝 SQL INSERT (sis_msg):', sqlMsg);
+      console.log('📊 Parâmetros:', valoresMsg);
+      
+      try {
+        const msgResult = await MkAuthAgentService.sendToAgent(
+          tenant,
+          sqlMsg,
+          valoresMsg
+        );
+        console.log('✅ Mensagem criada!', msgResult);
+      } catch (msgError) {
+        console.error('❌ ERRO ao criar mensagem:', msgError.message);
+        console.error('   Stack:', msgError.stack);
+        if (msgError.response) {
+          console.error('   Resposta do agente:', msgError.response.data);
+        }
+        console.warn('⚠️ Erro ao criar mensagem inicial (não crítico):', msgError.message);
+        // Não é crítico se falhar a mensagem - o chamado já foi criado
+      }
+    }
+    
+    return res.status(201).json({
+      success: true,
+      message: 'Chamado criado com sucesso',
+      chamado: chamadoNumber,        // Número do chamado (ddMMyyHHmmss...)
+      id: chamadoRecordId,           // ID do registro em sis_suporte
+      uuid: uuidSuporte,             // UUID do chamado
+      data: result
+    });
+    
+  } catch (error) {
+    console.error('[Request.create]', error.message);
+    
+    return res.status(500).json({
+      error: 'Erro ao criar chamado',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * Carrega dados do formulário de novo chamado
+ * GET /requests/form-data
+ * Retorna: { tecnicos: [...], planos: [...], tipos: [...], prioridades: [...], status: [...] }
+ */
+routes.get('/requests/form-data', RequestController.getFormData);
+
+/**
+ * Mensagens/Notas de Chamados
+ * GET /messages?chamado=XXX - Listar notas
+ * POST /messages?chamado=XXX - Adicionar nota
+ */
+const MessageController = require('./app/controllers/MessageController');
+routes.get('/messages', MessageController.show);
+routes.post('/messages', MessageController.store);
 
 // ==================== ERRO 404 ====================
 

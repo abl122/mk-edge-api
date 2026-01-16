@@ -773,8 +773,8 @@ class MkAuthAgentService {
      * NOTA: Query simplificada sem subquery COALESCE para evitar erro 401 do agente PHP
      * O backend buscará a mensagem separadamente se necessário
      */
-    listarChamados: ({ date, login, tecnico, isAdmin } = {}) => {
-      let sql = `SELECT s.id, s.chamado, s.nome, s.login, s.status, s.prioridade, s.assunto, s.visita, s.atendente, s.login_atend, s.tecnico, c.senha, c.plano, c.tipo, c.ip, c.endereco_res, c.numero_res, c.bairro_res, c.celular, f.nome as employee_name FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id`;
+    listarChamados: ({ date, login, tecnico, isAdmin, sortMode = 'DESC' } = {}) => {
+      let sql = `SELECT s.id, s.chamado, s.nome, s.login, s.status, s.prioridade, s.assunto, s.visita, s.atendente, s.login_atend, s.tecnico, s.abertura, c.senha, c.plano, c.tipo, c.ip, c.endereco_res, c.numero_res, c.bairro_res, c.celular, f.nome as employee_name FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id`;
       
       const conditions = [];
       
@@ -800,8 +800,9 @@ class MkAuthAgentService {
         sql += ' WHERE ' + conditions.join(' AND ');
       }
       
-      // Ordena por visita ASC (backend-antigo ordena response_object.sort por visita)
-      sql += ' ORDER BY s.visita ASC LIMIT 500';
+      // ✅ Ordena por abertura DESC (mais recentes primeiro) ou ASC conforme sortMode
+      const sortDirection = (sortMode || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+      sql += ` ORDER BY s.abertura ${sortDirection} LIMIT 500`;
       
       return { sql, params: {} };
     },
@@ -1021,14 +1022,23 @@ class MkAuthAgentService {
     
     /**
      * Lista técnicos ativos
+     * NOTA: Apenas colunas que existem em sis_func: id, nome
      */
     listarTecnicos: () => ({
-      sql: `SELECT id, nome, usuario, telefone, cargo
+      sql: `SELECT id, nome
             FROM sis_func 
-            WHERE ativo = 's' 
-              AND cargo IN ('tecnico', 'suporte', 'instalador')
-            ORDER BY nome ASC`,
+            ORDER BY nome ASC
+            LIMIT 100`,
       params: {}
+    }),
+    
+    /**
+     * Lista assuntos de chamados
+     * Busca da tabela item com campo = 'chamados_assunto'
+     */
+    listarAssuntos: () => ({
+      sql: `SELECT uuid, nome FROM item WHERE campo = ?`,
+      params: ['chamados_assunto']
     }),
     
     /**

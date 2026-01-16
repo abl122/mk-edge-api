@@ -10,6 +10,23 @@
 const MkAuthAgentService = require('../services/MkAuthAgentService');
 const logger = require('../../logger');
 
+/**
+ * Determina qual tabela usar baseado no request_type
+ * @param {string} requestType - 'Suporte', 'Ativação', 'Ativacao', etc
+ * @returns {string} Nome da tabela (sis_suporte ou sis_solic)
+ */
+function getTabelaPorTipo(requestType) {
+  const tipo = (requestType || '').toLowerCase();
+  
+  // Ativação/Instalação usa sis_solic
+  if (tipo.includes('ativ') || tipo.includes('instal')) {
+    return 'sis_solic';
+  }
+  
+  // Suporte usa sis_suporte (padrão)
+  return 'sis_suporte';
+}
+
 class RequestController {
   /**
    * Lista chamados com filtros
@@ -219,13 +236,8 @@ class RequestController {
       // Formato: GET /request/form/:login
       const isAlternativeFormat = request_id === 'form' && /^\d{11,14}$/.test(request_type);
       
-      if (!isAlternativeFormat && request_type !== 'Suporte') {
-        logger.warn('[RequestController.showLegacy] Tipo de chamado não suportado', { request_type });
-        return res.status(501).json({
-          error: 'Tipo de chamado não suportado',
-          message: 'Apenas chamados de Suporte são suportados'
-        });
-      }
+      // NOTA: Removida validação de tipo de chamado aqui
+      // O tipo correto virá do request_type no body durante o UPDATE
       
       logger.debug('[RequestController.showLegacy] Executando query chamadoCompletoComMensagens');
       
@@ -353,29 +365,306 @@ class RequestController {
   
   /**
    * Atualiza status de chamado
-   * PUT /requests/:id
+  /**
+   * Atualizar chamado (fechar, mudar status, etc)
+   * POST /request/:id
    * 
-   * Nota: Atualização requer UPDATE, não suportado pelo agente.
-   * Este método deve usar a conexão direta ou API específica.
+   * Para Suporte:
+   * {
+   *   action: "close_request",
+   *   request_type: "Suporte",
+   *   closingNote: "Problema resolvido com sucesso",
+   *   employee_id: "123456",
+   *   closingDate: "2026-01-15T18:58:47.759Z"
+   * }
+   * 
+   * Para Instalação/Ativação:
+   * {
+   *   action: "close_request",
+   *   request_type: "Ativação",
+   *   isVisited: true,
+   *   isInstalled: true,
+   *   isAvailable: true
+   * }
    */
   async update(req, res) {
     try {
       const { tenant } = req;
+      const chamadoId = req.params.id;
+      const { action, request_type, closingNote, employee_id, closingDate, isVisited, isInstalled, isAvailable, new_visita_date, new_visita_time, madeBy } = req.body;
       
-      return res.status(501).json({
-        error: 'Atualização de chamados não implementada via agente',
-        message: 'Use a API de atualização de chamados do provedor ou conexão direta'
+      console.log('🔄 [RequestController.update] Iniciando atualização');
+      console.log('   - Chamado ID:', chamadoId);
+      console.log('   - Action:', action);
+      console.log('   - Request Type:', request_type);
+      console.log('   - Body:', JSON.stringify(req.body, null, 2));
+      
+      if (!tenant.usaAgente()) {
+        console.error('❌ Tenant não usa agente');
+        return res.status(400).json({
+          error: 'Provedor não configurado para usar agente MK-Auth'
+        });
+      }
+      
+      // Validação básica
+      if (!chamadoId) {
+        console.error('❌ ID do chamado não informado');
+        return res.status(400).json({
+          error: 'ID do chamado não informado'
+        });
+      }
+      
+      // ===== ATUALIZAR APENAS DATA DE VISITA =====
+      if (action === 'update_visita_date') {
+        console.log('📅 Atualizando DATA de visita');
+        
+        if (!new_visita_date) {
+          return res.status(400).json({
+            error: 'new_visita_date é obrigatório'
+          });
+        }
+        
+        const tabela = getTabelaPorTipo(request_type);
+        const sql = `UPDATE ${tabela} SET visita = ? WHERE id = ?`;
+        const valores = [new_visita_date, chamadoId];
+        
+        console.log('📝 SQL Query:', sql);
+        console.log('📊 Parâmetros:', valores);
+        
+        const result = await MkAuthAgentService.sendToAgent(
+          tenant,
+          sql,
+          valores
+        );
+        
+        console.log('✅ Data de visita atualizada!');
+        
+        return res.json({
+          success: true,
+          message: `Data de visita do chamado ${chamadoId} atualizada para ${new_visita_date}`,
+          chamado_id: chamadoId,
+          new_visita_date
+        });
+      }
+      
+      // ===== ATUALIZAR APENAS HORA DE VISITA =====
+      if (action === 'update_visita_time') {
+        console.log('⏰ Atualizando HORA de visita');
+        
+        if (!new_visita_time) {
+          return res.status(400).json({
+            error: 'new_visita_time é obrigatório'
+          });
+        }
+        
+        const tabela = getTabelaPorTipo(request_type);
+        const sql = `UPDATE ${tabela} SET visita = ? WHERE id = ?`;
+        const valores = [new_visita_time, chamadoId];
+        
+        console.log('📝 SQL Query:', sql);
+        console.log('📊 Parâmetros:', valores);
+        
+        const result = await MkAuthAgentService.sendToAgent(
+          tenant,
+          sql,
+          valores
+        );
+        
+        console.log('✅ Hora de visita atualizada!');
+        
+        return res.json({
+          success: true,
+          message: `Hora de visita do chamado ${chamadoId} atualizada para ${new_visita_time}`,
+          chamado_id: chamadoId,
+          new_visita_time
+        });
+      }
+      
+      // ===== ATUALIZAR TÉCNICO RESPONSÁVEL =====
+      if (action === 'update_employee') {
+        console.log('👨‍💼 Atualizando TÉCNICO responsável');
+        
+        if (!employee_id) {
+          return res.status(400).json({
+            error: 'employee_id é obrigatório'
+          });
+        }
+        
+        const tecnicoId = parseInt(employee_id) || 0;
+        
+        if (tecnicoId === 0) {
+          return res.status(400).json({
+            error: 'employee_id deve ser um número válido'
+          });
+        }
+        
+        const tabela = getTabelaPorTipo(request_type);
+        const sql = `UPDATE ${tabela} SET tecnico = ? WHERE id = ?`;
+        const valores = [tecnicoId, chamadoId];
+        
+        console.log('📝 SQL Query:', sql);
+        console.log('📊 Parâmetros:', valores);
+        console.log('   - Novo técnico ID:', tecnicoId);
+        console.log('   - Tabela:', tabela);
+        
+        const result = await MkAuthAgentService.sendToAgent(
+          tenant,
+          sql,
+          valores
+        );
+        
+        console.log('✅ Técnico atualizado!');
+        
+        return res.json({
+          success: true,
+          message: `Técnico do chamado ${chamadoId} atualizado para ID ${tecnicoId}`,
+          chamado_id: chamadoId,
+          employee_id: tecnicoId
+        });
+      }
+      
+      // ===== MAPEAR CLOSE_REQUEST DO APP =====
+      let campos = [];
+      let valores = [];
+      
+      if (action === 'close_request') {
+        
+        // ===== SUPORTE =====
+        if (request_type === 'Suporte') {
+          console.log('📋 Processando SUPORTE');
+          
+          // Status = 'fechado'
+          campos.push('status = ?');
+          valores.push('fechado');
+          
+          // Data de fechamento
+          if (closingDate) {
+            campos.push('fechamento = ?');
+            const dataFormatada = new Date(closingDate).toISOString().slice(0, 19).replace('T', ' ');
+            valores.push(dataFormatada);
+            console.log('   - Data fechamento:', dataFormatada);
+          }
+          
+          // Motivo = closingNote
+          let motivoFechar = closingNote || 'Fechado pelo app';
+          console.log('   - Motivo:', motivoFechar);
+          
+          campos.push('motivo_fechar = ?');
+          valores.push(motivoFechar);
+        }
+        
+        // ===== INSTALAÇÃO/ATIVAÇÃO =====
+        else {
+          console.log('📋 Processando INSTALAÇÃO/ATIVAÇÃO');
+          
+          // Data formatada como dd-MM-yyyy HH:mm:ss
+          const agora = new Date();
+          const dia = String(agora.getDate()).padStart(2, '0');
+          const mes = String(agora.getMonth() + 1).padStart(2, '0');
+          const ano = agora.getFullYear();
+          const hora = String(agora.getHours()).padStart(2, '0');
+          const minuto = String(agora.getMinutes()).padStart(2, '0');
+          const segundo = String(agora.getSeconds()).padStart(2, '0');
+          const formattedDate = `${dia}-${mes}-${ano} ${hora}:${minuto}:${segundo}`;
+          
+          console.log('   - Data formatada:', formattedDate);
+          
+          // fechamento
+          campos.push('fechamento = ?');
+          valores.push(formattedDate);
+          
+          // datainst
+          campos.push('datainst = ?');
+          valores.push(formattedDate);
+          
+          // visitado
+          campos.push('visitado = ?');
+          valores.push(isVisited ? 'sim' : 'nao');
+          
+          // instalado
+          campos.push('instalado = ?');
+          valores.push(isInstalled ? 'sim' : 'nao');
+          
+          // disp (disponível)
+          campos.push('disp = ?');
+          valores.push(isAvailable ? 'sim' : 'nao');
+          
+          console.log('   - visitado:', isVisited ? 'sim' : 'nao');
+          console.log('   - instalado:', isInstalled ? 'sim' : 'nao');
+          console.log('   - disp:', isAvailable ? 'sim' : 'nao');
+        }
+      }
+      
+      // Se não tem campos para atualizar
+      if (campos.length === 0) {
+        console.error('❌ Nenhum campo para atualizar');
+        return res.status(400).json({
+          error: 'Nenhuma alteração informada'
+        });
+      }
+      
+      // Adiciona o ID do chamado como condição WHERE
+      valores.push(chamadoId);
+      
+      const tabela = getTabelaPorTipo(request_type);
+      const sql = `UPDATE ${tabela} SET ${campos.join(', ')} WHERE id = ?`;
+      
+      console.log('📝 SQL Query:', sql);
+      console.log('📊 Parâmetros (array):', valores);
+      console.log('   - Tabela:', tabela);
+      
+      logger.info('[RequestController] Atualizando chamado', {
+        chamado_id: chamadoId,
+        action: action,
+        request_type: request_type,
+        tabela: tabela
+      });
+      
+      // Executa via agente (passa array simples para placeholders posicionais)
+      const result = await MkAuthAgentService.sendToAgent(
+        tenant,
+        sql,
+        valores
+      );
+      
+      console.log('✅ [RequestController.update] Sucesso!');
+      console.log('   - Resultado:', JSON.stringify(result, null, 2));
+      
+      logger.info('[RequestController] Chamado atualizado com sucesso', {
+        chamado_id: chamadoId,
+        resultado: result
+      });
+      
+      return res.json({
+        success: true,
+        message: `Chamado ${chamadoId} fechado com sucesso`,
+        chamado_id: chamadoId,
+        novo_status: request_type === 'Suporte' ? 'fechado' : 'ativado'
       });
       
     } catch (error) {
+      console.error('❌ [RequestController.update] ERRO:', error.message);
+      console.error('   Stack:', error.stack);
+      
+      // Log da resposta do agente se houver
+      if (error.response) {
+        console.error('   - Status HTTP:', error.response.status);
+        console.error('   - Resposta do agente:', JSON.stringify(error.response.data, null, 2));
+      }
+      
       logger.error('[RequestController] Erro ao atualizar chamado', {
         error: error.message,
-        chamado_id: req.params.id
+        chamado_id: req.params.id,
+        statusAgente: error.response?.status,
+        respostaAgente: error.response?.data,
+        stack: error.stack
       });
       
       return res.status(500).json({
         error: 'Erro ao atualizar chamado',
-        message: error.message
+        message: error.message,
+        agentStatus: error.response?.status,
+        agentError: error.response?.data
       });
     }
   }
@@ -395,16 +684,18 @@ class RequestController {
       }
       
       // Busca técnicos disponíveis
-      const tecnicos = await MkAuthAgentService.execute(
+      const tecnicos_result = await MkAuthAgentService.execute(
         tenant,
         'listarTecnicos'
       );
+      const tecnicos = tecnicos_result?.data || [];
       
       // Busca planos ativos
-      const planos = await MkAuthAgentService.execute(
+      const planos_result = await MkAuthAgentService.execute(
         tenant,
         'planosAtivos'
       );
+      const planos = planos_result?.data || [];
       
       logger.info('[RequestController] Dados do formulário carregados', {
         provedor_id: tenant._id,

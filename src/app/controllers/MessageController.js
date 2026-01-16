@@ -256,6 +256,137 @@ class MessageController {
       });
     }
   }
+
+  /**
+   * Adicionar nota a um chamado
+   * POST /messages
+   * Query: chamado=XXX
+   * Body: { msg, msg_data } ou { action: "add_note", msg, data }
+   */
+  async store(req, res) {
+    try {
+      const { tenant } = req;
+      const { chamado } = req.query;
+      const { msg, msg_data, action, data, login, atendente } = req.body;
+      
+      // Suporta ambos os formatos (antigo e novo app)
+      const nota = msg || req.body.msg;
+      const dataFormatada = msg_data || data;
+      
+      console.log('📝 [MessageController.store] Adicionando nota');
+      console.log('   - Chamado:', chamado);
+      console.log('   - Ação:', action);
+      console.log('   - Nota:', nota?.substring(0, 50));
+      console.log('   - Data:', dataFormatada);
+      console.log('   - Login (do payload):', login);
+      console.log('   - Atendente (do payload):', atendente);
+      
+      if (!tenant.usaAgente()) {
+        console.error('❌ Tenant não usa agente');
+        return res.status(400).json({
+          error: 'Provedor não configurado para usar agente MK-Auth'
+        });
+      }
+      
+      // Validações
+      if (!chamado) {
+        console.error('❌ ID do chamado não informado');
+        return res.status(400).json({
+          error: 'ID do chamado não informado'
+        });
+      }
+      
+      if (!nota) {
+        console.error('❌ Mensagem não informada');
+        return res.status(400).json({
+          error: 'Mensagem não informada'
+        });
+      }
+      
+      // Constrói query INSERT para sis_msg (tabela de mensagens/notas)
+      const campos = ['chamado', 'msg', 'tipo'];
+      const valores = [chamado, nota, 'mk-edge'];
+      
+      // Data da mensagem (OBRIGATÓRIA)
+      campos.push('msg_data');
+      let dataSql = agora = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      if (dataFormatada) {
+        const dataObj = new Date(dataFormatada);
+        dataSql = dataObj.toISOString().slice(0, 19).replace('T', ' ');
+      }
+      valores.push(dataSql);
+      
+      // ✅ Login - usar do payload, ou do req.user, ou padrão
+      const loginFinal = login || req.user?.login || 'app';
+      campos.push('login');
+      valores.push(loginFinal);
+      console.log('   - Login final (será inserido):', loginFinal);
+      
+      // ✅ Atendente - usar do payload, ou do req.user, ou padrão
+      const atendenteFinal = atendente || req.user?.nome || 'App';
+      campos.push('atendente');
+      valores.push(atendenteFinal);
+      console.log('   - Atendente final (será inserido):', atendenteFinal);
+      
+      const placeholders = campos.map(() => '?').join(', ');
+      const sql = `INSERT INTO sis_msg (${campos.join(', ')}) VALUES (${placeholders})`;
+      
+      console.log('📝 SQL Query:', sql);
+      console.log('📊 Parâmetros:', valores);
+      
+      logger.info('[MessageController.store] Adicionando nota', {
+        chamado_id: chamado,
+        nota_length: nota.length
+      });
+      
+      // Executa via agente
+      const result = await MkAuthAgentService.sendToAgent(
+        tenant,
+        sql,
+        valores
+      );
+      
+      console.log('✅ [MessageController.store] Sucesso!');
+      console.log('   - Resultado:', JSON.stringify(result, null, 2));
+      
+      logger.info('[MessageController.store] Nota adicionada com sucesso', {
+        chamado_id: chamado,
+        resultado: result
+      });
+      
+      return res.json({
+        success: true,
+        message: 'Nota adicionada com sucesso',
+        chamado_id: chamado,
+        nota: nota
+      });
+      
+    } catch (error) {
+      console.error('❌ [MessageController.store] ERRO:', error.message);
+      console.error('   Stack:', error.stack);
+      
+      // Log da resposta do agente se houver
+      if (error.response) {
+        console.error('   - Status HTTP:', error.response.status);
+        console.error('   - Resposta do agente:', JSON.stringify(error.response.data, null, 2));
+      }
+      
+      logger.error('[MessageController.store] Erro ao adicionar nota', {
+        error: error.message,
+        chamado_id: req.query.chamado,
+        statusAgente: error.response?.status,
+        respostaAgente: error.response?.data,
+        stack: error.stack
+      });
+      
+      return res.status(500).json({
+        error: 'Erro ao adicionar nota',
+        message: error.message,
+        agentStatus: error.response?.status,
+        agentError: error.response?.data
+      });
+    }
+  }
 }
 
 module.exports = new MessageController();
