@@ -86,7 +86,6 @@ class MkAuthAgentService {
      * NOTA: Campos omitidos por causarem erro 500: vencimento, dia_bloq
      */
     clientePorLogin: (login) => {
-      const safeLogin = (login || '').replace(/['"\\]/g, '');
       return {
         sql: `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
                      cli_ativado, bloqueado, observacao, rem_obs,
@@ -96,8 +95,8 @@ class MkAuthAgentService {
                      coordenadas, caixa_herm, porta_olt, porta_splitter,
                      status_corte, cadastro, data_ins,
                      tit_abertos, tit_vencidos
-              FROM sis_cliente WHERE login = '${safeLogin}' LIMIT 1`,
-        params: {}
+              FROM sis_cliente WHERE login = :login LIMIT 1`,
+        params: { login }
       };
     },
     
@@ -225,7 +224,6 @@ class MkAuthAgentService {
      * Retorna TODOS os campos como buscarCliente
      */
     buscarClientePorLogin: (login) => {
-      const safeLogin = (login || '').replace(/['"\\]/g, '');
       return {
         sql: `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
                      cli_ativado, bloqueado, observacao, rem_obs,
@@ -236,14 +234,13 @@ class MkAuthAgentService {
                      status_corte, cadastro, data_ins,
                      tit_abertos, tit_vencidos
               FROM sis_cliente 
-              WHERE login = '${safeLogin}' 
+              WHERE login = :login
               LIMIT 1`,
-        params: {}
+        params: { login }
       };
     },
     
     /**
-     * Lista chamados de um cliente por ID
      * Para uso em /request/form/:login
      */
     listarChamadosPorClienteId: (client_id) => {
@@ -357,15 +354,12 @@ class MkAuthAgentService {
      * Consumo agregado em um período (total em bytes)
      */
     consumoAgregadoPeriodo: (login, dataInicio, dataFim) => {
-      const safeLogin = (login || '').replace(/['"\\]/g, '');
-      const safeInicio = (dataInicio || '').replace(/['"\\]/g, '');
-      const safeFim = (dataFim || '').replace(/['"\\]/g, '');
       return {
         sql: `SELECT SUM(acctinputoctets + acctoutputoctets) as total
               FROM radacct
-              WHERE username = '${safeLogin}'
-                AND acctstarttime BETWEEN '${safeInicio}' AND '${safeFim}'`,
-        params: {}
+              WHERE username = :login
+                AND acctstarttime BETWEEN :inicio AND :fim`,
+        params: { login, inicio: dataInicio, fim: dataFim }
       };
     },
     
@@ -459,14 +453,13 @@ class MkAuthAgentService {
      * Última conexão do cliente
      */
     ultimaConexao: (login) => {
-      const safeLogin = (login || '').replace(/['"\\]/g, '');
       return {
         sql: `SELECT acctstarttime, acctstoptime
               FROM radacct
-              WHERE username = '${safeLogin}'
+              WHERE username = :login
               ORDER BY acctstarttime DESC
               LIMIT 1`,
-        params: {}
+        params: { login }
       };
     },
     
@@ -476,7 +469,6 @@ class MkAuthAgentService {
      * Todos os demais campos do model Client.js do backend-antigo estão incluídos
      */
     buscarCliente: (clientId) => {
-      const safeId = parseInt(clientId, 10) || 0;
       return {
         sql: `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
                      cli_ativado, bloqueado, observacao, rem_obs,
@@ -487,9 +479,9 @@ class MkAuthAgentService {
                      status_corte, cadastro, data_ins,
                      tit_abertos, tit_vencidos
               FROM sis_cliente
-              WHERE id = ${safeId}
+              WHERE id = :clientId
               LIMIT 1`,
-        params: {}
+        params: { clientId }
       };
     },
     
@@ -497,7 +489,6 @@ class MkAuthAgentService {
      * Histórico de conexões paginado
      */
     historicoConexoesPaginado: (login, page = 1, limit = 50) => {
-      const safeLogin = (login || '').replace(/['"\\]/g, '');
       const offset = (parseInt(page) - 1) * parseInt(limit);
       const safeLimit = Math.min(parseInt(limit), 100);
       
@@ -516,10 +507,10 @@ class MkAuthAgentService {
                      acctinputoctets,
                      acctoutputoctets
               FROM radacct
-              WHERE username = '${safeLogin}'
+              WHERE username = :login
               ORDER BY acctstarttime DESC
-              LIMIT ${safeLimit} OFFSET ${offset}`,
-        params: {}
+              LIMIT :limit OFFSET :offset`,
+        params: { login, limit: safeLimit, offset }
       };
     },
     
@@ -546,15 +537,14 @@ class MkAuthAgentService {
      * Clientes conectados em uma CTO
      */
     clientesPorCto: (ctoid) => {
-      const safeCtoid = (ctoid || '').replace(/['"\\]/g, '');
       return {
         sql: `SELECT id, login, nome, coordenadas, cpf_cnpj, celular, fone,
                      endereco_res, numero_res, bairro_res, plano, bloqueado, cli_ativado
               FROM sis_cliente
-              WHERE caixa_herm = '${safeCtoid}'
+              WHERE caixa_herm = :ctoid
               ORDER BY nome ASC
               LIMIT 500`,
-        params: {}
+        params: { ctoid }
       };
     },
     
@@ -870,10 +860,9 @@ class MkAuthAgentService {
      * Retorna formato compatível com backend-antigo
      */
     chamadoCompletoComMensagens: (requestId) => {
-      const safeId = (String(requestId) || '').replace(/['"\\]/g, '');
       return {
-        sql: `SELECT @old_group_concat_max_len := @@group_concat_max_len, @group_concat_max_len := 1000000, s.id, s.chamado, s.visita, s.fechamento, s.motivo_fechar as motivo_fechamento, s.nome, s.login, s.tecnico, s.status, s.assunto, s.prioridade, c.id as client_id, c.senha, c.plano, c.tipo, c.ssid, c.ip, c.endereco_res as endereco, c.numero_res as numero, c.bairro_res as bairro, c.equipamento, c.coordenadas, c.observacao as observacoes, c.caixa_herm as caixa_hermetica, c.fone as telefone, c.celular, f.nome as employee_name, (SELECT IFNULL(CONCAT('[', GROUP_CONCAT(JSON_OBJECT('id', m.id, 'texto', m.msg, 'data', m.msg_data, 'atendente', m.atendente, 'tipo', COALESCE(m.tipo, 'tecnico')) ORDER BY m.msg_data DESC SEPARATOR ','), ']'), '[]') FROM sis_msg m WHERE m.chamado = s.chamado) as mensagens_json FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id WHERE s.id = '${safeId}' LIMIT 1`,
-        params: {},
+        sql: `SELECT @old_group_concat_max_len := @@group_concat_max_len, @group_concat_max_len := 1000000, s.id, s.chamado, s.visita, s.fechamento, s.motivo_fechar as motivo_fechamento, s.nome, s.login, s.tecnico, s.status, s.assunto, s.prioridade, c.id as client_id, c.senha, c.plano, c.tipo, c.ssid, c.ip, c.endereco_res as endereco, c.numero_res as numero, c.bairro_res as bairro, c.equipamento, c.coordenadas, c.observacao as observacoes, c.caixa_herm as caixa_hermetica, c.fone as telefone, c.celular, f.nome as employee_name, (SELECT IFNULL(CONCAT('[', GROUP_CONCAT(JSON_OBJECT('id', m.id, 'texto', m.msg, 'data', m.msg_data, 'atendente', m.atendente, 'tipo', COALESCE(m.tipo, 'tecnico')) ORDER BY m.msg_data DESC SEPARATOR ','), ']'), '[]') FROM sis_msg m WHERE m.chamado = s.chamado) as mensagens_json FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id WHERE s.id = :requestId LIMIT 1`,
+        params: { requestId },
         transform: (rows) => {
           try {
             logger.debug('[chamadoCompletoComMensagens] Transform iniciado', {
@@ -1241,17 +1230,15 @@ class MkAuthAgentService {
      * Busca clientes por nome (ativados/desativados)
      */
     buscarClientesPorNome: (termo, ativoFlag) => {
-      const safeTermo = (termo || '').replace(/['"\\]/g, '');
-      const safeFlag = (ativoFlag || 's').replace(/['"\\]/g, '');
       return {
         sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
                      endereco_res, numero_res, bairro_res, plano, bloqueado
               FROM sis_cliente
-              WHERE cli_ativado = '${safeFlag}'
-                AND nome LIKE '%${safeTermo}%'
+              WHERE cli_ativado = :ativoFlag
+                AND nome LIKE :termo
               ORDER BY nome ASC
               LIMIT 200`,
-        params: {}
+        params: { ativoFlag, termo: `%${termo}%` }
       };
     },
 
@@ -1259,17 +1246,15 @@ class MkAuthAgentService {
      * Busca clientes por CPF/CNPJ
      */
     buscarClientesPorDocumento: (termo, ativoFlag) => {
-      const safeTermo = (termo || '').replace(/['"\\]/g, '');
-      const safeFlag = (ativoFlag || 's').replace(/['"\\]/g, '');
       return {
         sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
                      endereco_res, numero_res, bairro_res, plano, bloqueado
               FROM sis_cliente
-              WHERE cli_ativado = '${safeFlag}'
-                AND cpf_cnpj LIKE '%${safeTermo}%'
+              WHERE cli_ativado = :ativoFlag
+                AND cpf_cnpj LIKE :termo
               ORDER BY nome ASC
               LIMIT 200`,
-        params: {}
+        params: { ativoFlag, termo: `%${termo}%` }
       };
     },
 
@@ -1277,17 +1262,15 @@ class MkAuthAgentService {
      * Busca clientes por caixa hermética
      */
     buscarClientesPorCaixa: (termo, ativoFlag) => {
-      const safeTermo = (termo || '').replace(/['"\\]/g, '');
-      const safeFlag = (ativoFlag || 's').replace(/['"\\]/g, '');
       return {
         sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
                      endereco_res, numero_res, bairro_res, plano, bloqueado, caixa_herm
               FROM sis_cliente
-              WHERE cli_ativado = '${safeFlag}'
-                AND caixa_herm LIKE '%${safeTermo}%'
+              WHERE cli_ativado = :ativoFlag
+                AND caixa_herm LIKE :termo
               ORDER BY nome ASC
               LIMIT 200`,
-        params: {}
+        params: { ativoFlag, termo: `%${termo}%` }
       };
     },
 
@@ -1295,17 +1278,15 @@ class MkAuthAgentService {
      * Busca clientes por SSID
      */
     buscarClientesPorSSID: (termo, ativoFlag) => {
-      const safeTermo = (termo || '').replace(/['"\\]/g, '');
-      const safeFlag = (ativoFlag || 's').replace(/['"\\]/g, '');
       return {
         sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
                      endereco_res, numero_res, bairro_res, plano, bloqueado, ssid
               FROM sis_cliente
-              WHERE cli_ativado = '${safeFlag}'
-                AND ssid LIKE '%${safeTermo}%'
+              WHERE cli_ativado = :ativoFlag
+                AND ssid LIKE :termo
               ORDER BY nome ASC
               LIMIT 200`,
-        params: {}
+        params: { ativoFlag, termo: `%${termo}%` }
       };
     },
     
