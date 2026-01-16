@@ -243,14 +243,14 @@ class MkAuthAgentService {
       const safeClientId = parseInt(client_id) || 0;
       return {
         sql: `SELECT s.id, s.chamado, s.nome, s.login, s.status, s.prioridade, s.assunto, 
-                     s.visita, s.atendente, s.login_atend, s.tecnico, 
+                     s.visita, s.atendente, s.login_atend, s.tecnico, s.abertura,
                      c.senha, c.plano, c.tipo, c.ip, c.endereco_res, c.numero_res, 
                      c.bairro_res, c.celular, f.nome as employee_name
               FROM sis_suporte s 
               LEFT JOIN sis_cliente c ON s.login = c.login 
               LEFT JOIN sis_func f ON s.tecnico = f.id
               WHERE c.id = ${safeClientId}
-              ORDER BY s.visita DESC
+              ORDER BY s.abertura DESC
               LIMIT 10`,
         params: {}
       };
@@ -522,17 +522,17 @@ class MkAuthAgentService {
     ctoPorCoordenadas: (lat, lng, raio = 0.35) => ({
       sql: `SELECT id, nome, latitude, longitude,
                    (6371 * acos(
-                     cos(radians(:lat)) * cos(radians(latitude)) *
-                     cos(radians(longitude) - radians(:lng)) +
-                     sin(radians(:lat)) * sin(radians(latitude))
+                     cos(radians(?)) * cos(radians(latitude)) *
+                     cos(radians(longitude) - radians(?)) +
+                     sin(radians(?)) * sin(radians(latitude))
                    )) AS distance
             FROM mp_caixa
             WHERE latitude IS NOT NULL 
               AND longitude IS NOT NULL
-            HAVING distance < :raio
+            HAVING distance < ?
             ORDER BY distance
             LIMIT 50`,
-      params: { lat, lng, raio }
+      params: [lat, lng, lat, raio]
     }),
     
     /**
@@ -839,7 +839,7 @@ class MkAuthAgentService {
     /**
      * Chamados em atraso - baseado no backend antigo
      */
-    chamadosAtrasados: ({ sortMode = 'ASC' } = {}) => ({
+    chamadosAtrasados: ({ sortMode = 'DESC' } = {}) => ({
       sql: `
         SELECT 
           s.*,
@@ -865,7 +865,7 @@ class MkAuthAgentService {
     chamadoCompletoComMensagens: (requestId) => {
       const safeId = (String(requestId) || '').replace(/['"\\]/g, '');
       return {
-        sql: `SELECT @old_group_concat_max_len := @@group_concat_max_len, @group_concat_max_len := 1000000, s.id, s.chamado, s.visita, s.fechamento, s.motivo_fechar as motivo_fechamento, s.nome, s.login, s.tecnico, s.status, s.assunto, s.prioridade, c.id as client_id, c.senha, c.plano, c.tipo, c.ssid, c.ip, c.endereco_res as endereco, c.numero_res as numero, c.bairro_res as bairro, c.equipamento, c.coordenadas, c.observacao as observacoes, c.caixa_herm as caixa_hermetica, c.fone as telefone, c.celular, f.nome as employee_name, (SELECT IFNULL(CONCAT('[', GROUP_CONCAT(JSON_OBJECT('id', m.id, 'texto', m.msg, 'data', m.msg_data, 'atendente', m.atendente, 'tipo', COALESCE(m.tipo, 'tecnico')) ORDER BY m.msg_data ASC SEPARATOR ','), ']'), '[]') FROM sis_msg m WHERE m.chamado = s.chamado) as mensagens_json FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id WHERE s.id = '${safeId}' LIMIT 1`,
+        sql: `SELECT @old_group_concat_max_len := @@group_concat_max_len, @group_concat_max_len := 1000000, s.id, s.chamado, s.visita, s.fechamento, s.motivo_fechar as motivo_fechamento, s.nome, s.login, s.tecnico, s.status, s.assunto, s.prioridade, c.id as client_id, c.senha, c.plano, c.tipo, c.ssid, c.ip, c.endereco_res as endereco, c.numero_res as numero, c.bairro_res as bairro, c.equipamento, c.coordenadas, c.observacao as observacoes, c.caixa_herm as caixa_hermetica, c.fone as telefone, c.celular, f.nome as employee_name, (SELECT IFNULL(CONCAT('[', GROUP_CONCAT(JSON_OBJECT('id', m.id, 'texto', m.msg, 'data', m.msg_data, 'atendente', m.atendente, 'tipo', COALESCE(m.tipo, 'tecnico')) ORDER BY m.msg_data DESC SEPARATOR ','), ']'), '[]') FROM sis_msg m WHERE m.chamado = s.chamado) as mensagens_json FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id WHERE s.id = '${safeId}' LIMIT 1`,
         params: {},
         transform: (rows) => {
           try {
@@ -1036,6 +1036,31 @@ class MkAuthAgentService {
      * Lista assuntos de chamados
      * Busca da tabela item com campo = 'chamados_assunto'
      */
+    /**
+     * Busca assuntos de sis_opcao (configuração)
+     */
+    buscarAssuntosDeOpcao: () => ({
+      sql: `SELECT valor FROM sis_opcao WHERE nome = 'assunto_suporte' LIMIT 1`,
+      params: []
+    }),
+    
+    /**
+     * Busca assuntos DISTINCT de sis_suporte dos últimos 3 meses
+     */
+    buscarAssuntosDeSuporte: () => {
+      // Data de 3 meses atrás
+      const treseMesesAtras = new Date();
+      treseMesesAtras.setMonth(treseMesesAtras.getMonth() - 3);
+      const dataFormatada = treseMesesAtras.toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      return {
+        sql: `SELECT DISTINCT assunto FROM sis_suporte 
+              WHERE assunto IS NOT NULL AND assunto != '' AND abertura >= ?
+              ORDER BY assunto ASC`,
+        params: [dataFormatada]
+      };
+    },
+    
     listarAssuntos: () => ({
       sql: `SELECT uuid, nome FROM item WHERE campo = ?`,
       params: ['chamados_assunto']

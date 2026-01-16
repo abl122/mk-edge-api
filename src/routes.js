@@ -13,6 +13,7 @@ const ClientController = require('./app/controllers/ClientController');
 const SessionController = require('./app/controllers/SessionController');
 const InvoiceController = require('./app/controllers/InvoiceController');
 const SearchController = require('./app/controllers/SearchController');
+const CTOController = require('./app/controllers/CTOController');
 const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 const AuthController = require('./app/controllers/AuthController');
 const InstallerController = require('./app/controllers/InstallerController');
@@ -64,6 +65,8 @@ const authMiddleware = (req, res, next) => {
 
 // ==================== ROTAS PÚBLICAS ====================
 
+// ==================== ROTAS PÚBLICAS (SEM TENANT_ID) ====================
+
 /**
  * Health check
  */
@@ -111,6 +114,7 @@ const apiInfo = {
 
 routes.get('/api/info', (req, res) => res.json(apiInfo));
 routes.get('/api/status', (req, res) => res.json(apiInfo));
+
 /**
  * Ping do agente MK-Auth
  * GET /agent/ping
@@ -357,23 +361,28 @@ routes.get('/request/form/:clientId', async (req, res) => {
       });
     }
     
-    // Busca assuntos do banco
+    // Busca assuntos do banco (DISTINCT de sis_suporte dos últimos 3 meses)
     console.log(`📝 [Request.form] Carregando assuntos...`);
     let assuntos = [];
     
     try {
-      const queryDef = MkAuthAgentService.queries.listarAssuntos();
-      const assuntos_result = await MkAuthAgentService.sendToAgent(
+      const querySuporte = MkAuthAgentService.queries.buscarAssuntosDeSuporte();
+      const suporteResult = await MkAuthAgentService.sendToAgent(
         tenant,
-        queryDef.sql,
-        queryDef.params
+        querySuporte.sql,
+        querySuporte.params
       );
       
-      if (assuntos_result?.data && Array.isArray(assuntos_result.data)) {
-        assuntos = assuntos_result.data.map(a => a.nome);
-        console.log(`✅ [Request.form] ${assuntos.length} assuntos carregados do banco`);
-      } else {
-        console.warn(`⚠️ [Request.form] Nenhum assunto no resultado, usando padrão`);
+      if (suporteResult?.data && Array.isArray(suporteResult.data)) {
+        assuntos = suporteResult.data
+          .map(a => a.assunto)
+          .filter(a => a && a.trim().length > 0);
+        console.log(`✅ [Request.form] ${assuntos.length} assuntos carregados de sis_suporte`);
+      }
+      
+      // Se não encontrou, usar lista padrão
+      if (assuntos.length === 0) {
+        console.log(`⚠️ [Request.form] Nenhum assunto encontrado, usando padrão`);
         assuntos = [
           'Conexao',
           'Instalação',
@@ -385,7 +394,7 @@ routes.get('/request/form/:clientId', async (req, res) => {
         ];
       }
     } catch (assuntosError) {
-      console.warn(`⚠️ [Request.form] Erro ao buscar assuntos do banco:`, assuntosError.message);
+      console.warn(`⚠️ [Request.form] Erro ao buscar assuntos:`, assuntosError.message);
       console.log(`   Usando assuntos padrão como fallback`);
       assuntos = [
         'Conexao',
@@ -516,6 +525,16 @@ routes.post('/client/:id', async (req, res) => {
     });
   }
 });
+
+/**
+ * CTOs (Caixas Hermétcas)
+ * GET /cto/:latitude/:longitude - Busca CTOs próximas (raio ~350m)
+ * GET /cto/:lat/:lng - Alias com lat/lng
+ * GET /cto?cto_name=CTO-001 - Busca CTO específica
+ */
+routes.get('/cto/:latitude/:longitude', CTOController.index);
+routes.get('/cto/:lat/:lng', CTOController.index);  // Alias com lat/lng
+routes.get('/cto', CTOController.show);             // CTO específica
 
 /**
  * Buscar faturas por client_id
@@ -1000,8 +1019,8 @@ routes.get('/requests/form-data', RequestController.getFormData);
  * POST /messages?chamado=XXX - Adicionar nota
  */
 const MessageController = require('./app/controllers/MessageController');
-routes.get('/messages', MessageController.show);
-routes.post('/messages', MessageController.store);
+routes.get('/messages', authMiddleware, MessageController.show);
+routes.post('/messages', authMiddleware, MessageController.store);
 
 // ==================== ERRO 404 ====================
 

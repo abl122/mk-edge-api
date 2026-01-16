@@ -63,7 +63,7 @@ class RequestController {
       }
       
       // Lista completa de chamados
-      const queryDef = MkAuthAgentService.queries.listarChamados({ date, tecnico, isAdmin });
+      const queryDef = MkAuthAgentService.queries.listarChamados({ date, tecnico, isAdmin, sortMode: 'DESC' });
       
       // Executa diretamente via agente
       const chamados = await MkAuthAgentService.sendToAgent(
@@ -103,19 +103,31 @@ class RequestController {
       
       // Formata resposta para compatibilidade com app mobile (backend-antigo)
       const response = chamadosList.map(chamado => {
-        // Formata hora de visita se existir
+        // Formata data e hora de visita se existir
         let visitaTime = null;
+        let dataVisita = null;
+        
         if (chamado.visita) {
           const visitaDate = new Date(chamado.visita);
+          
+          // Formata hora: HH:mm
           visitaTime = visitaDate.toLocaleTimeString('pt-BR', {
             hour: '2-digit',
             minute: '2-digit'
+          });
+          
+          // Formata data: dd/MM/yyyy (compatível com antigo backend)
+          dataVisita = visitaDate.toLocaleDateString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
           });
         }
         
         return {
           id: chamado.id,
           visita: visitaTime,
+          data_visita: dataVisita,
           nome: chamado.nome,
           login: chamado.login,
           senha: chamado.senha,
@@ -134,11 +146,48 @@ class RequestController {
           aberto_por: chamado.atendente || null,
           fechado_por: chamado.login_atend || null
         };
+      }).sort((a, b) => {
+        // Ordena DESC por data_visita e ASC por hora_visita
+        // Converte dd/MM/yyyy para timestamp para comparação
+        const parseData = (dateStr) => {
+          if (!dateStr) return 0;
+          const [dia, mes, ano] = dateStr.split('/');
+          return new Date(ano, mes - 1, dia).getTime();
+        };
+        
+        const parseHora = (horaStr) => {
+          if (!horaStr) return 0;
+          const [horas, minutos] = horaStr.split(':');
+          return parseInt(horas) * 60 + parseInt(minutos);
+        };
+        
+        const dataA = parseData(a.data_visita);
+        const dataB = parseData(b.data_visita);
+        
+        // Se datas diferentes, ordena DESC (maior primeiro)
+        if (dataA !== dataB) {
+          return dataB - dataA;
+        }
+        
+        // Se datas iguais, ordena ASC por hora (menor primeiro)
+        const horaA = parseHora(a.visita);
+        const horaB = parseHora(b.visita);
+        return horaA - horaB;
       });
       
+
       logger.info(`[RequestController] ${response.length} chamados listados`, {
         provedor_id: tenant._id,
-        filtros: { date, tecnico, isAdmin }
+        filtros: { date, tecnico, isAdmin },
+        chamados: response.map(c => ({
+          id: c.id,
+          chamado: c.chamado,
+          cliente: c.nome,
+          login: c.login,
+          status: c.status,
+          assunto: c.assunto,
+          abertura: c.abertura
+        }))
       });
       
       return res.json(response);
@@ -391,7 +440,7 @@ class RequestController {
     try {
       const { tenant } = req;
       const chamadoId = req.params.id;
-      const { action, request_type, closingNote, employee_id, closingDate, isVisited, isInstalled, isAvailable, new_visita_date, new_visita_time, madeBy } = req.body;
+      const { action, request_type, closingNote, employee_id, closingDate, isVisited, isInstalled, isAvailable, new_visita_date, new_visita_time, madeBy, login_atendente, nome_atendente, nota_data } = req.body;
       
       console.log('🔄 [RequestController.update] Iniciando atualização');
       console.log('   - Chamado ID:', chamadoId);
@@ -416,7 +465,8 @@ class RequestController {
       
       // ===== ATUALIZAR APENAS DATA DE VISITA =====
       if (action === 'update_visita_date') {
-        console.log('📅 Atualizando DATA de visita');
+        console.log('📅 Atualizando DATA de visita (mantendo hora)');
+        console.log('   - new_visita_date recebido:', new_visita_date);
         
         if (!new_visita_date) {
           return res.status(400).json({
@@ -424,9 +474,48 @@ class RequestController {
           });
         }
         
+        // Extrai apenas a data do new_visita_date (mesmo que venha com hora)
+        let dataFormatada = new_visita_date;
+        if (new_visita_date.includes(' ')) {
+          // Se vem com hora, extrai apenas a parte da data
+          dataFormatada = new_visita_date.split(' ')[0];
+        }
+        console.log('   - Data extraída:', dataFormatada);
+        
+        // Busca a visita atual para extrair a hora
+        const queryDef = MkAuthAgentService.queries.chamadoPorId(chamadoId);
+        const chamadoAtual = await MkAuthAgentService.sendToAgent(
+          tenant,
+          queryDef.sql,
+          queryDef.params
+        );
+        
+        if (!chamadoAtual?.data || chamadoAtual.data.length === 0) {
+          return res.status(404).json({
+            error: 'Chamado não encontrado'
+          });
+        }
+        
+        // Extrai hora do chamado atual (mantém a hora)
+        const visitaAtual = chamadoAtual.data[0].visita;
+        let horaAtual = '00:00:00';
+        
+        if (visitaAtual) {
+          const visitaDate = new Date(visitaAtual);
+          const hh = String(visitaDate.getHours()).padStart(2, '0');
+          const mm = String(visitaDate.getMinutes()).padStart(2, '0');
+          const ss = String(visitaDate.getSeconds()).padStart(2, '0');
+          horaAtual = `${hh}:${mm}:${ss}`;
+        }
+        console.log('   - Hora mantida:', horaAtual);
+        
+        // Combina nova data com hora antiga: YYYY-MM-DD HH:mm:ss
+        const novaVisita = `${dataFormatada} ${horaAtual}`;
+        console.log('   - Nova visita (data + hora):', novaVisita);
+        
         const tabela = getTabelaPorTipo(request_type);
         const sql = `UPDATE ${tabela} SET visita = ? WHERE id = ?`;
-        const valores = [new_visita_date, chamadoId];
+        const valores = [novaVisita, chamadoId];
         
         console.log('📝 SQL Query:', sql);
         console.log('📊 Parâmetros:', valores);
@@ -437,13 +526,15 @@ class RequestController {
           valores
         );
         
-        console.log('✅ Data de visita atualizada!');
+        console.log('✅ Data de visita atualizada (hora mantida)!');
         
         return res.json({
           success: true,
-          message: `Data de visita do chamado ${chamadoId} atualizada para ${new_visita_date}`,
+          message: `Data de visita do chamado ${chamadoId} atualizada para ${dataFormatada} (hora mantida: ${horaAtual})`,
           chamado_id: chamadoId,
-          new_visita_date
+          new_visita_date: dataFormatada,
+          hora_mantida: horaAtual,
+          nova_visita: novaVisita
         });
       }
       
@@ -635,6 +726,65 @@ class RequestController {
         resultado: result
       });
       
+      // ===== ADICIONAR NOTA DE FECHAMENTO =====
+      if (action === 'close_request' && closingNote) {
+        try {
+          console.log('📝 Adicionando nota de fechamento...');
+          
+          // Busca o número do chamado para inserir a nota
+          const queryDef = MkAuthAgentService.queries.chamadoPorId(chamadoId);
+          const chamadoInfo = await MkAuthAgentService.sendToAgent(
+            tenant,
+            queryDef.sql,
+            queryDef.params
+          );
+          
+          if (chamadoInfo?.data && chamadoInfo.data.length > 0) {
+            const numeroChamado = chamadoInfo.data[0].chamado;
+            
+            // Usa nota_data se fornecido, senão gera agora
+            let dataNota = nota_data;
+            if (dataNota) {
+              // Converte ISO 8601 para MySQL format (YYYY-MM-DD HH:mm:ss)
+              dataNota = new Date(dataNota).toISOString().slice(0, 19).replace('T', ' ');
+            } else {
+              dataNota = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            }
+            
+            // Usa login_atendente e nome_atendente se fornecidos, senão usa fallbacks
+            const loginAtendente = login_atendente || 'app';
+            const nomeAtendente = nome_atendente || 'App';
+            
+            // INSERT nota de fechamento
+            const sqlNota = `INSERT INTO sis_msg (chamado, msg, tipo, msg_data, login, atendente) VALUES (?, ?, ?, ?, ?, ?)`;
+            const valoresNota = [numeroChamado, closingNote, 'mk-edge', dataNota, loginAtendente, nomeAtendente];
+            
+            console.log('   - SQL:', sqlNota);
+            console.log('   - Params:', valoresNota);
+            
+            await MkAuthAgentService.sendToAgent(
+              tenant,
+              sqlNota,
+              valoresNota
+            );
+            
+            console.log('✅ Nota de fechamento adicionada com sucesso');
+            logger.info('[RequestController] Nota de fechamento adicionada', {
+              chamado_id: chamadoId,
+              numero_chamado: numeroChamado,
+              nota: closingNote
+            });
+          }
+        } catch (noteError) {
+          console.warn('⚠️ Erro ao adicionar nota de fechamento:', noteError.message);
+          logger.warn('[RequestController] Erro ao adicionar nota de fechamento', {
+            chamado_id: chamadoId,
+            error: noteError.message
+          });
+          // Continua mesmo se não conseguir adicionar a nota
+        }
+      }
+      
       return res.json({
         success: true,
         message: `Chamado ${chamadoId} fechado com sucesso`,
@@ -778,7 +928,7 @@ class RequestController {
   async overdue(req, res) {
     try {
       const { tenant } = req;
-      const { sortMode } = req.query;
+      const { sortMode = 'DESC' } = req.query;
       
       if (!tenant.usaAgente()) {
         return res.status(400).json({
@@ -786,7 +936,7 @@ class RequestController {
         });
       }
       
-      // Busca chamados em atraso com sortMode
+      // Busca chamados em atraso com sortMode (padrão DESC - mais recentes primeiro)
       const queryDef = MkAuthAgentService.queries.chamadosAtrasados({ sortMode });
       const result = await MkAuthAgentService.sendToAgent(
         tenant,

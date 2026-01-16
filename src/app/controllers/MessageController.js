@@ -261,13 +261,13 @@ class MessageController {
    * Adicionar nota a um chamado
    * POST /messages
    * Query: chamado=XXX
-   * Body: { msg, msg_data } ou { action: "add_note", msg, data }
+   * Body: { msg, msg_data } ou { action: "add_note", msg, data, login_atendente, nome_atendente }
    */
   async store(req, res) {
     try {
       const { tenant } = req;
       const { chamado } = req.query;
-      const { msg, msg_data, action, data, login, atendente } = req.body;
+      const { msg, msg_data, action, data, login, atendente, login_atendente, nome_atendente } = req.body;
       
       // Suporta ambos os formatos (antigo e novo app)
       const nota = msg || req.body.msg;
@@ -278,8 +278,8 @@ class MessageController {
       console.log('   - Ação:', action);
       console.log('   - Nota:', nota?.substring(0, 50));
       console.log('   - Data:', dataFormatada);
-      console.log('   - Login (do payload):', login);
-      console.log('   - Atendente (do payload):', atendente);
+      console.log('   - Login (do payload):', login_atendente || login);
+      console.log('   - Atendente (do payload):', nome_atendente || atendente);
       
       if (!tenant.usaAgente()) {
         console.error('❌ Tenant não usa agente');
@@ -309,21 +309,22 @@ class MessageController {
       
       // Data da mensagem (OBRIGATÓRIA)
       campos.push('msg_data');
-      let dataSql = agora = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      let agora = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      let dataSql = agora;
       if (dataFormatada) {
         const dataObj = new Date(dataFormatada);
         dataSql = dataObj.toISOString().slice(0, 19).replace('T', ' ');
       }
       valores.push(dataSql);
       
-      // ✅ Login - usar do payload, ou do req.user, ou padrão
-      const loginFinal = login || req.user?.login || 'app';
+      // ✅ Login - usar do novo campo (login_atendente), depois do payload antigo (login), depois do req.user, depois padrão
+      const loginFinal = login_atendente || login || req.user?.login || 'app';
       campos.push('login');
       valores.push(loginFinal);
       console.log('   - Login final (será inserido):', loginFinal);
       
-      // ✅ Atendente - usar do payload, ou do req.user, ou padrão
-      const atendenteFinal = atendente || req.user?.nome || 'App';
+      // ✅ Atendente - usar do novo campo (nome_atendente), depois do payload antigo (atendente), depois do req.user, depois padrão
+      const atendenteFinal = nome_atendente || atendente || req.user?.nome || 'App';
       campos.push('atendente');
       valores.push(atendenteFinal);
       console.log('   - Atendente final (será inserido):', atendenteFinal);
