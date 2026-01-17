@@ -321,8 +321,18 @@ class ClientController {
         });
       }
       
+      // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico)
+      const isLoginFormat = login.length >= 11 && login.length <= 14 && isNaN(login);
+      const whereField = isLoginFormat ? 'login' : 'id';
+      const whereValue = isLoginFormat ? login : parseInt(login);
+      
       // Verifica se cliente existe
-      const checkQuery = MkAuthAgentService.queries.clientePorLogin(login);
+      let checkQuery;
+      if (isLoginFormat) {
+        checkQuery = MkAuthAgentService.queries.clientePorLogin(login);
+      } else {
+        checkQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
+      }
       const checkResult = await MkAuthAgentService.executeQuery(tenant, checkQuery);
       const existingClient = MkAuthResponseAdapter.adaptSelect(checkResult, true);
       
@@ -334,7 +344,8 @@ class ClientController {
       
       // Monta query UPDATE dinâmica
       const fields = [];
-      const params = { login };
+      const params = {};
+      params[whereField] = whereValue;
       
       if (updateData.nome) {
         fields.push('nome = :nome');
@@ -426,7 +437,7 @@ class ClientController {
       }
       
       const query = {
-        sql: `UPDATE sis_cliente SET ${fields.join(', ')} WHERE login = :login`,
+        sql: `UPDATE sis_cliente SET ${fields.join(', ')} WHERE ${whereField} = :${whereField}`,
         params
       };
       
@@ -437,8 +448,8 @@ class ClientController {
         result,
         tenant,
         'sis_cliente',
-        'login',
-        login
+        whereField,
+        whereValue
       );
       
       if (!updatedClient) {
@@ -448,7 +459,8 @@ class ClientController {
       }
       
       logger.info({
-        login,
+        clientId: whereValue,
+        clientType: whereField,
         tenant: tenant.nome,
         updatedFields: Object.keys(updateData)
       }, 'Cliente atualizado com sucesso');
@@ -457,7 +469,7 @@ class ClientController {
       
     } catch (error) {
       logger.error({ 
-        login: req.params.login,
+        clientId: login,
         error: error.message,
         stack: error.stack 
       }, 'Erro ao atualizar cliente');
