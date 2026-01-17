@@ -311,7 +311,7 @@ class ClientController {
    */
   async update(req, res) {
     try {
-      const { login } = req.params;
+      const loginParam = String(req.params.login).trim();
       const { tenant } = req;
       const updateData = req.body;
       
@@ -323,13 +323,13 @@ class ClientController {
       
       // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico até 10 dígitos)
       // CPF = 11 dígitos, CNPJ = 14 dígitos
-      const isLoginFormat = (login.length === 11 || login.length === 14);
+      const isLoginFormat = (loginParam.length === 11 || loginParam.length === 14);
       const whereField = isLoginFormat ? 'login' : 'id';
-      const whereValue = isLoginFormat ? login : parseInt(login);
+      const whereValue = isLoginFormat ? loginParam : parseInt(loginParam);
       
       logger.info('[ClientController.update] Detectando tipo de identificador', {
-        login,
-        loginLength: login.length,
+        loginParam,
+        loginLength: loginParam.length,
         isLoginFormat,
         whereField,
         whereValue
@@ -338,7 +338,7 @@ class ClientController {
       // Verifica se cliente existe
       let checkQuery;
       if (isLoginFormat) {
-        checkQuery = MkAuthAgentService.queries.clientePorLogin(login);
+        checkQuery = MkAuthAgentService.queries.clientePorLogin(loginParam);
       } else {
         checkQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
       }
@@ -478,7 +478,7 @@ class ClientController {
       
     } catch (error) {
       logger.error({ 
-        clientId: login,
+        clientId: loginParam,
         error: error.message,
         stack: error.stack 
       }, 'Erro ao atualizar cliente');

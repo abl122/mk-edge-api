@@ -452,9 +452,386 @@ routes.get('/client/:id', tenantMiddleware, ClientController.showById);
 /**
  * Atualizar cliente por login (PUT)
  * PUT /client/:login
- * Usa ClientController.update que trata login corretamente
+ * Aceita tanto login (CPF/CNPJ) quanto ID
  */
-routes.put('/client/:login', tenantMiddleware, ClientController.update);
+routes.put('/client/:login', tenantMiddleware, async (req, res) => {
+  const { tenant } = req;
+  const loginParam = String(req.params.login).trim();
+  const updateData = req.body;
+  const MkAuthAgentService = require('./app/services/MkAuthAgentService');
+  const logger = require('./logger');
+  
+  try {
+    // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico)
+    const isLoginFormat = (loginParam.length === 11 || loginParam.length === 14);
+    const whereField = isLoginFormat ? 'login' : 'id';
+    const whereValue = isLoginFormat ? loginParam : parseInt(loginParam);
+    
+    logger.info('[Client.update] Detectando tipo', {
+      loginParam,
+      isLoginFormat,
+      whereField,
+      whereValue
+    });
+    
+    // Monta query UPDATE dinâmica
+    const fields = [];
+    const params = []; // Array posicional
+    
+    // Extrai e processa os campos
+    let { 
+      latitude, longitude, coordenadas,
+      new_cto, caixa_herm,
+      observacao, date, rem_obs,
+      nome, email, celular, fone,
+      endereco_res, numero_res, bairro_res, complemento_res,
+      automac, plano
+    } = updateData;
+    
+    // Processa coordenadas
+    if ((latitude !== undefined && longitude !== undefined) || coordenadas !== undefined) {
+      let coordStr = coordenadas;
+      if (!coordStr && latitude !== undefined && longitude !== undefined) {
+        coordStr = `${latitude},${longitude}`;
+      }
+      if (coordStr) {
+        fields.push('coordenadas = ?');
+        params.push(coordStr);
+      }
+    }
+    
+    // Processa CTO (aceita new_cto ou caixa_herm)
+    if (new_cto !== undefined || caixa_herm !== undefined) {
+      fields.push('caixa_herm = ?');
+      params.push(new_cto || caixa_herm);
+    }
+    
+    // Processa observação
+    if (observacao !== undefined && ['sim', 'nao'].includes(observacao)) {
+      fields.push('observacao = ?');
+      params.push(observacao);
+      
+      // Processa data da observação
+      let dataFormatada = rem_obs;
+      if (!dataFormatada && date) {
+        try {
+          dataFormatada = new Date(date).toISOString().slice(0, 19).replace('T', ' ');
+        } catch (err) {
+          logger.warn('[Client.update] Erro ao parsear data:', err);
+        }
+      }
+      
+      if (dataFormatada) {
+        fields.push('rem_obs = ?');
+        params.push(dataFormatada);
+      } else if (observacao === 'nao') {
+        fields.push('rem_obs = NULL');
+      }
+    }
+    
+    // Processa campos pessoais
+    if (nome !== undefined) {
+      fields.push('nome = ?');
+      params.push(nome);
+    }
+    if (email !== undefined) {
+      fields.push('email = ?');
+      params.push(email);
+    }
+    if (celular !== undefined) {
+      fields.push('celular = ?');
+      params.push(celular);
+    }
+    if (fone !== undefined) {
+      fields.push('fone = ?');
+      params.push(fone);
+    }
+    
+    // Processa endereço
+    if (endereco_res !== undefined) {
+      fields.push('endereco_res = ?');
+      params.push(endereco_res);
+    }
+    if (numero_res !== undefined) {
+      fields.push('numero_res = ?');
+      params.push(numero_res);
+    }
+    if (bairro_res !== undefined) {
+      fields.push('bairro_res = ?');
+      params.push(bairro_res);
+    }
+    if (complemento_res !== undefined) {
+      fields.push('complemento_res = ?');
+      params.push(complemento_res);
+    }
+    
+    // Processa automac
+    if (automac === true || automac === 'sim') {
+      fields.push('mac = NULL');
+      fields.push('automac = ?');
+      params.push('sim');
+    }
+    
+    // Processa plano
+    if (plano !== undefined) {
+      fields.push('plano = ?');
+      params.push(plano);
+    }
+    
+    if (fields.length === 0) {
+      return res.status(400).json({
+        error: 'Nenhum campo para atualizar'
+      });
+    }
+    
+    const sql = `UPDATE sis_cliente SET ${fields.join(', ')} WHERE ${whereField} = ?`;
+    params.push(whereValue);
+    
+    console.log('📝 SQL:', sql);
+    console.log('📊 Parâmetros:', params);
+    
+    const result = await MkAuthAgentService.sendToAgent(
+      tenant,
+      sql,
+      params
+    );
+    
+    console.log('✅ [Client.update] Resultado do agente:', result);
+    
+    // Busca os dados atualizados do cliente
+    let updatedClient = null;
+    try {
+      const operation = isLoginFormat ? 'buscarClientePorLogin' : 'buscarCliente';
+      const clientResult = await MkAuthAgentService.execute(tenant, operation, isLoginFormat ? loginParam : whereValue);
+      
+      if (clientResult.data && clientResult.data.length > 0) {
+        updatedClient = clientResult.data[0];
+        console.log('📦 [Client.update] Cliente após update:', {
+          endereco_res: updatedClient.endereco_res,
+          numero_res: updatedClient.numero_res,
+          nome: updatedClient.nome
+        });
+      }
+    } catch (err) {
+      console.warn('⚠️ [Client.update] Erro ao buscar cliente atualizado:', err.message);
+    }
+    
+    logger.info('[Client.update] Cliente atualizado com sucesso', {
+      loginParam,
+      whereField,
+      whereValue,
+      updatedFields: Object.keys(updateData).filter(k => updateData[k] !== undefined)
+    });
+    
+    return res.json({
+      success: true,
+      message: `Cliente ${loginParam} atualizado com sucesso`,
+      client_id: loginParam,
+      updated_fields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
+      client: updatedClient || undefined
+    });
+    
+  } catch (error) {
+    console.error('[Client.update]', error.message);
+    
+    return res.status(500).json({
+      error: 'Erro ao atualizar cliente',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * Atualizar cliente por login (POST)
+ * POST /client/:login
+ * Aceita tanto login (CPF/CNPJ) quanto ID
+ */
+routes.post('/client/:login', tenantMiddleware, async (req, res) => {
+  const { tenant } = req;
+  const loginParam = String(req.params.login).trim();
+  const updateData = req.body;
+  const MkAuthAgentService = require('./app/services/MkAuthAgentService');
+  const logger = require('./logger');
+  
+  try {
+    // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico)
+    const isLoginFormat = (loginParam.length === 11 || loginParam.length === 14);
+    const whereField = isLoginFormat ? 'login' : 'id';
+    const whereValue = isLoginFormat ? loginParam : parseInt(loginParam);
+    
+    logger.info('[Client.update] Detectando tipo', {
+      loginParam,
+      isLoginFormat,
+      whereField,
+      whereValue
+    });
+    
+    // Monta query UPDATE dinâmica
+    const fields = [];
+    const params = []; // Array posicional
+    
+    // Extrai e processa os campos
+    let { 
+      latitude, longitude, coordenadas,
+      new_cto, caixa_herm,
+      observacao, date, rem_obs,
+      nome, email, celular, fone,
+      endereco_res, numero_res, bairro_res, complemento_res,
+      automac, plano
+    } = updateData;
+    
+    // Processa coordenadas
+    if ((latitude !== undefined && longitude !== undefined) || coordenadas !== undefined) {
+      let coordStr = coordenadas;
+      if (!coordStr && latitude !== undefined && longitude !== undefined) {
+        coordStr = `${latitude},${longitude}`;
+      }
+      if (coordStr) {
+        fields.push('coordenadas = ?');
+        params.push(coordStr);
+      }
+    }
+    
+    // Processa CTO (aceita new_cto ou caixa_herm)
+    if (new_cto !== undefined || caixa_herm !== undefined) {
+      fields.push('caixa_herm = ?');
+      params.push(new_cto || caixa_herm);
+    }
+    
+    // Processa observação
+    if (observacao !== undefined && ['sim', 'nao'].includes(observacao)) {
+      fields.push('observacao = ?');
+      params.push(observacao);
+      
+      // Processa data da observação
+      let dataFormatada = rem_obs;
+      if (!dataFormatada && date) {
+        try {
+          dataFormatada = new Date(date).toISOString().slice(0, 19).replace('T', ' ');
+        } catch (err) {
+          logger.warn('[Client.update] Erro ao parsear data:', err);
+        }
+      }
+      
+      if (dataFormatada) {
+        fields.push('rem_obs = ?');
+        params.push(dataFormatada);
+      } else if (observacao === 'nao') {
+        fields.push('rem_obs = NULL');
+      }
+    }
+    
+    // Processa campos pessoais
+    if (nome !== undefined) {
+      fields.push('nome = ?');
+      params.push(nome);
+    }
+    if (email !== undefined) {
+      fields.push('email = ?');
+      params.push(email);
+    }
+    if (celular !== undefined) {
+      fields.push('celular = ?');
+      params.push(celular);
+    }
+    if (fone !== undefined) {
+      fields.push('fone = ?');
+      params.push(fone);
+    }
+    
+    // Processa endereço
+    if (endereco_res !== undefined) {
+      fields.push('endereco_res = ?');
+      params.push(endereco_res);
+    }
+    if (numero_res !== undefined) {
+      fields.push('numero_res = ?');
+      params.push(numero_res);
+    }
+    if (bairro_res !== undefined) {
+      fields.push('bairro_res = ?');
+      params.push(bairro_res);
+    }
+    if (complemento_res !== undefined) {
+      fields.push('complemento_res = ?');
+      params.push(complemento_res);
+    }
+    
+    // Processa automac
+    if (automac === true || automac === 'sim') {
+      fields.push('mac = NULL');
+      fields.push('automac = ?');
+      params.push('sim');
+    }
+    
+    // Processa plano
+    if (plano !== undefined) {
+      fields.push('plano = ?');
+      params.push(plano);
+    }
+    
+    if (fields.length === 0) {
+      return res.status(400).json({
+        error: 'Nenhum campo para atualizar'
+      });
+    }
+    
+    const sql = `UPDATE sis_cliente SET ${fields.join(', ')} WHERE ${whereField} = ?`;
+    params.push(whereValue);
+    
+    console.log('📝 SQL:', sql);
+    console.log('📊 Parâmetros:', params);
+    
+    const result = await MkAuthAgentService.sendToAgent(
+      tenant,
+      sql,
+      params
+    );
+    
+    console.log('✅ [Client.update] Resultado do agente:', result);
+    
+    // Busca os dados atualizados do cliente
+    let updatedClient = null;
+    try {
+      const operation = isLoginFormat ? 'buscarClientePorLogin' : 'buscarCliente';
+      const clientResult = await MkAuthAgentService.execute(tenant, operation, isLoginFormat ? loginParam : whereValue);
+      
+      if (clientResult.data && clientResult.data.length > 0) {
+        updatedClient = clientResult.data[0];
+        console.log('📦 [Client.update] Cliente após update:', {
+          endereco_res: updatedClient.endereco_res,
+          numero_res: updatedClient.numero_res,
+          nome: updatedClient.nome
+        });
+      }
+    } catch (err) {
+      console.warn('⚠️ [Client.update] Erro ao buscar cliente atualizado:', err.message);
+    }
+    
+    logger.info('[Client.update] Cliente atualizado com sucesso', {
+      loginParam,
+      whereField,
+      whereValue,
+      updatedFields: Object.keys(updateData).filter(k => updateData[k] !== undefined)
+    });
+    
+    return res.json({
+      success: true,
+      message: `Cliente ${loginParam} atualizado com sucesso`,
+      client_id: loginParam,
+      updated_fields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
+      client: updatedClient || undefined
+    });
+    
+  } catch (error) {
+    console.error('[Client.update]', error.message);
+    
+    return res.status(500).json({
+      error: 'Erro ao atualizar cliente',
+      message: error.message
+    });
+  }
+});
 
 /**
  * Atualizar cliente (observação, etc)
