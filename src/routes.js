@@ -601,15 +601,39 @@ routes.put('/client/:login', tenantMiddleware, async (req, res) => {
     // Busca os dados atualizados do cliente
     let updatedClient = null;
     try {
-      let fetchQuery;
+      let fetchSql;
+      let fetchParams = [];
+      
       if (isLoginFormat) {
-        fetchQuery = MkAuthAgentService.queries.clientePorLogin(loginParam);
+        fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
+                           cli_ativado, bloqueado, observacao, rem_obs,
+                           ip, mac, automac, equipamento, ssid,
+                           endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
+                           fone, celular, ramal, email,
+                           coordenadas, caixa_herm, porta_olt, porta_splitter,
+                           status_corte, cadastro, data_ins,
+                           tit_abertos, tit_vencidos
+                    FROM sis_cliente 
+                    WHERE login = ?
+                    LIMIT 1`;
+        fetchParams = [loginParam];
       } else {
-        fetchQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
+        fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
+                           cli_ativado, bloqueado, observacao, rem_obs,
+                           ip, mac, automac, equipamento, ssid,
+                           endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
+                           fone, celular, ramal, email,
+                           coordenadas, caixa_herm, porta_olt, porta_splitter,
+                           status_corte, cadastro, data_ins,
+                           tit_abertos, tit_vencidos
+                    FROM sis_cliente 
+                    WHERE id = ?
+                    LIMIT 1`;
+        fetchParams = [whereValue];
       }
       
-      const fetchResult = await MkAuthAgentService.executeQuery(tenant, fetchQuery);
-      console.log('📊 [Client.update] Query result:', fetchResult);
+      const fetchResult = await MkAuthAgentService.sendToAgent(tenant, fetchSql, fetchParams);
+      console.log('📊 [Client.update] Fetch result:', fetchResult);
       
       if (fetchResult && fetchResult.data && fetchResult.data.length > 0) {
         updatedClient = fetchResult.data[0];
@@ -805,15 +829,39 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
     // Busca os dados atualizados do cliente
     let updatedClient = null;
     try {
-      let fetchQuery;
+      let fetchSql;
+      let fetchParams = [];
+      
       if (isLoginFormat) {
-        fetchQuery = MkAuthAgentService.queries.clientePorLogin(loginParam);
+        fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
+                           cli_ativado, bloqueado, observacao, rem_obs,
+                           ip, mac, automac, equipamento, ssid,
+                           endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
+                           fone, celular, ramal, email,
+                           coordenadas, caixa_herm, porta_olt, porta_splitter,
+                           status_corte, cadastro, data_ins,
+                           tit_abertos, tit_vencidos
+                    FROM sis_cliente 
+                    WHERE login = ?
+                    LIMIT 1`;
+        fetchParams = [loginParam];
       } else {
-        fetchQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
+        fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
+                           cli_ativado, bloqueado, observacao, rem_obs,
+                           ip, mac, automac, equipamento, ssid,
+                           endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
+                           fone, celular, ramal, email,
+                           coordenadas, caixa_herm, porta_olt, porta_splitter,
+                           status_corte, cadastro, data_ins,
+                           tit_abertos, tit_vencidos
+                    FROM sis_cliente 
+                    WHERE id = ?
+                    LIMIT 1`;
+        fetchParams = [whereValue];
       }
       
-      const fetchResult = await MkAuthAgentService.executeQuery(tenant, fetchQuery);
-      console.log('📊 [Client.update] Query result:', fetchResult);
+      const fetchResult = await MkAuthAgentService.sendToAgent(tenant, fetchSql, fetchParams);
+      console.log('📊 [Client.update] Fetch result:', fetchResult);
       
       if (fetchResult && fetchResult.data && fetchResult.data.length > 0) {
         updatedClient = fetchResult.data[0];
