@@ -321,10 +321,19 @@ class ClientController {
         });
       }
       
-      // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico)
-      const isLoginFormat = login.length >= 11 && login.length <= 14 && isNaN(login);
+      // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico até 10 dígitos)
+      // CPF = 11 dígitos, CNPJ = 14 dígitos
+      const isLoginFormat = (login.length === 11 || login.length === 14);
       const whereField = isLoginFormat ? 'login' : 'id';
       const whereValue = isLoginFormat ? login : parseInt(login);
+      
+      logger.info('[ClientController.update] Detectando tipo de identificador', {
+        login,
+        loginLength: login.length,
+        isLoginFormat,
+        whereField,
+        whereValue
+      });
       
       // Verifica se cliente existe
       let checkQuery;
