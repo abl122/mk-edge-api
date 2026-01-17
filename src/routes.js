@@ -601,16 +601,27 @@ routes.put('/client/:login', tenantMiddleware, async (req, res) => {
     // Busca os dados atualizados do cliente
     let updatedClient = null;
     try {
-      const operation = isLoginFormat ? 'buscarClientePorLogin' : 'buscarCliente';
-      const clientResult = await MkAuthAgentService.execute(tenant, operation, isLoginFormat ? loginParam : whereValue);
+      let fetchQuery;
+      if (isLoginFormat) {
+        fetchQuery = MkAuthAgentService.queries.clientePorLogin(loginParam);
+      } else {
+        fetchQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
+      }
       
-      if (clientResult.data && clientResult.data.length > 0) {
-        updatedClient = clientResult.data[0];
+      const fetchResult = await MkAuthAgentService.executeQuery(tenant, fetchQuery);
+      console.log('📊 [Client.update] Query result:', fetchResult);
+      
+      if (fetchResult && fetchResult.data && fetchResult.data.length > 0) {
+        updatedClient = fetchResult.data[0];
         console.log('📦 [Client.update] Cliente após update:', {
+          id: updatedClient.id,
+          login: updatedClient.login,
           endereco_res: updatedClient.endereco_res,
           numero_res: updatedClient.numero_res,
           nome: updatedClient.nome
         });
+      } else {
+        console.warn('⚠️ [Client.update] Cliente não encontrado após update - fetchResult:', fetchResult);
       }
     } catch (err) {
       console.warn('⚠️ [Client.update] Erro ao buscar cliente atualizado:', err.message);
@@ -620,7 +631,8 @@ routes.put('/client/:login', tenantMiddleware, async (req, res) => {
       loginParam,
       whereField,
       whereValue,
-      updatedFields: Object.keys(updateData).filter(k => updateData[k] !== undefined)
+      updatedFields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
+      updatedClientFound: !!updatedClient
     });
     
     return res.json({
@@ -793,16 +805,27 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
     // Busca os dados atualizados do cliente
     let updatedClient = null;
     try {
-      const operation = isLoginFormat ? 'buscarClientePorLogin' : 'buscarCliente';
-      const clientResult = await MkAuthAgentService.execute(tenant, operation, isLoginFormat ? loginParam : whereValue);
+      let fetchQuery;
+      if (isLoginFormat) {
+        fetchQuery = MkAuthAgentService.queries.clientePorLogin(loginParam);
+      } else {
+        fetchQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
+      }
       
-      if (clientResult.data && clientResult.data.length > 0) {
-        updatedClient = clientResult.data[0];
+      const fetchResult = await MkAuthAgentService.executeQuery(tenant, fetchQuery);
+      console.log('📊 [Client.update] Query result:', fetchResult);
+      
+      if (fetchResult && fetchResult.data && fetchResult.data.length > 0) {
+        updatedClient = fetchResult.data[0];
         console.log('📦 [Client.update] Cliente após update:', {
+          id: updatedClient.id,
+          login: updatedClient.login,
           endereco_res: updatedClient.endereco_res,
           numero_res: updatedClient.numero_res,
           nome: updatedClient.nome
         });
+      } else {
+        console.warn('⚠️ [Client.update] Cliente não encontrado após update - fetchResult:', fetchResult);
       }
     } catch (err) {
       console.warn('⚠️ [Client.update] Erro ao buscar cliente atualizado:', err.message);
@@ -812,7 +835,8 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
       loginParam,
       whereField,
       whereValue,
-      updatedFields: Object.keys(updateData).filter(k => updateData[k] !== undefined)
+      updatedFields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
+      updatedClientFound: !!updatedClient
     });
     
     return res.json({
