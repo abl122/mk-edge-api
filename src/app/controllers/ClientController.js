@@ -36,8 +36,9 @@ class ClientController {
       });
       
       // Busca cliente por ID ou Login
-      const isNumeric = !isNaN(id) && !isNaN(parseFloat(id));
-      const operation = isNumeric ? 'buscarCliente' : 'buscarClientePorLogin';
+      // Diferencia: CPF/CNPJ têm 11-14 dígitos, ID é menor
+      const isLoginFormat = (id.length === 11 || id.length === 14);
+      const operation = isLoginFormat ? 'buscarClientePorLogin' : 'buscarCliente';
       const result = await MkAuthAgentService.execute(tenant, operation, id);
       
       console.log('\n🔍 [DEBUG] ClientController.showById result:', {
