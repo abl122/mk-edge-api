@@ -450,6 +450,13 @@ routes.get('/dashboard/stats', DashboardController.stats);
 routes.get('/client/:id', tenantMiddleware, ClientController.showById);
 
 /**
+ * Atualizar cliente por login (PUT)
+ * PUT /client/:login
+ * Usa ClientController.update que trata login corretamente
+ */
+routes.put('/client/:login', tenantMiddleware, ClientController.update);
+
+/**
  * Atualizar cliente (observação, etc)
  * POST /client/:id
  * Body: { action: "update_client", observacao: "sim"|"nao", date: ISO_DATE }
