@@ -87,7 +87,7 @@ class MkAuthAgentService {
      */
     clientePorLogin: (login) => {
       return {
-        sql: `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
+        sql: `SELECT login, id, nome, cpf_cnpj, senha, plano, tipo, 
                      cli_ativado, bloqueado, observacao, rem_obs,
                      ip, mac, automac, equipamento, ssid,
                      endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
@@ -107,7 +107,7 @@ class MkAuthAgentService {
     clienteCompleto: (login) => {
       const safeLogin = (login || '').replace(/['"\\]/g, '');
       return {
-        sql: `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
+        sql: `SELECT login, id, nome, cpf_cnpj, senha, plano, tipo, 
                      cli_ativado, bloqueado, observacao, rem_obs,
                      ip, mac, automac, equipamento, ssid,
                      endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
@@ -225,7 +225,7 @@ class MkAuthAgentService {
      */
     buscarClientePorLogin: (login) => {
       return {
-        sql: `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
+        sql: `SELECT login, id, nome, cpf_cnpj, senha, plano, tipo, 
                      cli_ativado, bloqueado, observacao, rem_obs,
                      ip, mac, automac, equipamento, ssid,
                      endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
