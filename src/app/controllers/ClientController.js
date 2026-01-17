@@ -467,26 +467,6 @@ class ClientController {
         });
       }
       
-      // Busca o cliente atualizado usando a mesma lógica de detecção
-      const fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
-                       cli_ativado, bloqueado, observacao, rem_obs,
-                       ip, mac, automac, equipamento, ssid,
-                       endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
-                       fone, celular, ramal, email,
-                       coordenadas, caixa_herm, porta_olt, porta_splitter,
-                       status_corte, cadastro, data_ins,
-                       tit_abertos, tit_vencidos
-                FROM sis_cliente WHERE ${whereField} = ? LIMIT 1`;
-      const fetchParams = isLoginFormat ? [loginParam] : [whereValue];
-      const fetchResult = await MkAuthAgentService.sendToAgent(tenant, fetchSql, fetchParams);
-      const updatedClient = MkAuthResponseAdapter.adaptSelect(fetchResult, true);
-      
-      if (!updatedClient) {
-        return res.status(404).json({
-          message: 'Erro ao recuperar dados do cliente após atualização'
-        });
-      }
-      
       logger.info({
         clientId: whereValue,
         clientType: whereField,
@@ -494,7 +474,12 @@ class ClientController {
         updatedFields: Object.keys(updateData)
       }, 'Cliente atualizado com sucesso');
       
-      return res.json(updatedClient);
+      // Retorna apenas confirmação de sucesso
+      return res.json({ 
+        success: true, 
+        message: 'Cliente atualizado com sucesso',
+        affected_rows: updateResult.affected_rows
+      });
       
     } catch (error) {
       logger.error({ 
