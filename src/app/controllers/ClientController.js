@@ -467,15 +467,18 @@ class ClientController {
         });
       }
       
-      // Busca o cliente atualizado com a field correta
-      let fetchQuery;
-      if (isLoginFormat) {
-        fetchQuery = MkAuthAgentService.queries.buscarClientePorLogin(loginParam);
-      } else {
-        fetchQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
-      }
-      
-      const fetchResult = await MkAuthAgentService.executeQuery(tenant, fetchQuery);
+      // Busca o cliente atualizado usando a mesma lógica de detecção
+      const fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
+                       cli_ativado, bloqueado, observacao, rem_obs,
+                       ip, mac, automac, equipamento, ssid,
+                       endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
+                       fone, celular, ramal, email,
+                       coordenadas, caixa_herm, porta_olt, porta_splitter,
+                       status_corte, cadastro, data_ins,
+                       tit_abertos, tit_vencidos
+                FROM sis_cliente WHERE ${whereField} = ? LIMIT 1`;
+      const fetchParams = isLoginFormat ? [loginParam] : [whereValue];
+      const fetchResult = await MkAuthAgentService.sendToAgent(tenant, fetchSql, fetchParams);
       const updatedClient = MkAuthResponseAdapter.adaptSelect(fetchResult, true);
       
       if (!updatedClient) {
