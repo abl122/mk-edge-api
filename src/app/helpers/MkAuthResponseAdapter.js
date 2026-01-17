@@ -116,8 +116,8 @@ class MkAuthResponseAdapter {
     
     // Faz query adicional para buscar o registro atualizado
     const query = {
-      sql: `SELECT * FROM ${tableName} WHERE ${idField} = :id LIMIT 1`,
-      params: { id: idValue }
+      sql: `SELECT * FROM ${tableName} WHERE ${idField} = :${idField} LIMIT 1`,
+      params: { [idField]: idValue }
     };
     
     const result = await MkAuthAgentService.executeQuery(tenant, query);

@@ -306,6 +306,189 @@ class ClientController {
   /**
    * Atualiza dados de um cliente
    * 
+   * PUT /clients/:login
+   * PATCH /clients/:login
+   */
+  async update(req, res) {
+    try {
+      const loginParam = String(req.params.login).trim();
+      const { tenant } = req;
+      const updateData = req.body;
+      
+      if (!tenant.usaAgente()) {
+        return res.status(503).json({ 
+          message: 'Agente não configurado' 
+        });
+      }
+      
+      // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico até 10 dígitos)
+      // CPF = 11 dígitos, CNPJ = 14 dígitos
+      const isLoginFormat = (loginParam.length === 11 || loginParam.length === 14);
+      const whereField = isLoginFormat ? 'login' : 'id';
+      const whereValue = isLoginFormat ? loginParam : parseInt(loginParam);
+      
+      logger.info('[ClientController.update] Detectando tipo de identificador', {
+        loginParam,
+        loginLength: loginParam.length,
+        isLoginFormat,
+        whereField,
+        whereValue
+      });
+      
+      // Verifica se cliente existe
+      let checkQuery;
+      if (isLoginFormat) {
+        checkQuery = MkAuthAgentService.queries.clientePorLogin(loginParam);
+      } else {
+        checkQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
+      }
+      const checkResult = await MkAuthAgentService.executeQuery(tenant, checkQuery);
+      const existingClient = MkAuthResponseAdapter.adaptSelect(checkResult, true);
+      
+      if (!existingClient) {
+        return res.status(404).json({ 
+          message: 'Cliente não encontrado' 
+        });
+      }
+      
+      // Monta query UPDATE dinâmica
+      const fields = [];
+      const params = {};
+      params[whereField] = whereValue;
+      
+      if (updateData.nome) {
+        fields.push('nome = :nome');
+        params.nome = updateData.nome;
+      }
+      if (updateData.email !== undefined) {
+        fields.push('email = :email');
+        params.email = updateData.email;
+      }
+      if (updateData.celular !== undefined) {
+        fields.push('celular = :celular');
+        params.celular = updateData.celular;
+      }
+      if (updateData.fone !== undefined) {
+        fields.push('fone = :fone');
+        params.fone = updateData.fone;
+      }
+      if (updateData.endereco_res !== undefined || updateData.endereco !== undefined) {
+        fields.push('endereco_res = :endereco_res');
+        params.endereco_res = updateData.endereco_res || updateData.endereco || '';
+      }
+      if (updateData.numero_res !== undefined || updateData.numero !== undefined) {
+        fields.push('numero_res = :numero_res');
+        params.numero_res = updateData.numero_res || updateData.numero || '';
+      }
+      if (updateData.bairro_res !== undefined || updateData.bairro !== undefined) {
+        fields.push('bairro_res = :bairro_res');
+        params.bairro_res = updateData.bairro_res || updateData.bairro || '';
+      }
+      if (updateData.complemento_res !== undefined || updateData.complemento !== undefined) {
+        fields.push('complemento_res = :complemento_res');
+        params.complemento_res = updateData.complemento_res || updateData.complemento || '';
+      }
+      if (updateData.plano !== undefined) {
+        fields.push('plano = :plano');
+        params.plano = updateData.plano;
+      }
+      
+      // Atualiza coordenadas (latitude/longitude ou string única)
+      if ((updateData.latitude !== undefined && updateData.longitude !== undefined) || 
+          updateData.coordenadas !== undefined) {
+        let coordenadas = updateData.coordenadas;
+        if (!coordenadas && updateData.latitude !== undefined && updateData.longitude !== undefined) {
+          coordenadas = `${updateData.latitude},${updateData.longitude}`;
+        }
+        if (coordenadas) {
+          fields.push('coordenadas = :coordenadas');
+          params.coordenadas = coordenadas;
+        }
+      }
+      
+      // Atualiza CTO/Caixa Hermética (aceita new_cto ou caixa_herm)
+      if (updateData.new_cto !== undefined || updateData.caixa_herm !== undefined) {
+        fields.push('caixa_herm = :caixa_herm');
+        params.caixa_herm = updateData.new_cto || updateData.caixa_herm;
+      }
+      
+      // Atualiza observação
+      if (updateData.observacao !== undefined) {
+        fields.push('observacao = :observacao');
+        params.observacao = updateData.observacao;
+        
+        // Se tem data, atualiza rem_obs
+        if (updateData.rem_obs !== undefined) {
+          fields.push('rem_obs = :rem_obs');
+          params.rem_obs = updateData.rem_obs;
+        } else if (updateData.date !== undefined) {
+          // Tenta parsear date se fornecido
+          try {
+            const parsedDate = new Date(updateData.date).toISOString().slice(0, 19).replace('T', ' ');
+            fields.push('rem_obs = :rem_obs');
+            params.rem_obs = parsedDate;
+          } catch (err) {
+            logger.warn('[ClientController.update] Erro ao parsear data:', err);
+          }
+        }
+      }
+      
+      // Atualiza automac (quando ativado, zera mac e seta automac='sim')
+      if (updateData.automac === true || updateData.automac === 'sim') {
+        fields.push('mac = NULL, automac = :automac');
+        params.automac = 'sim';
+      }
+      
+      if (fields.length === 0) {
+        return res.status(400).json({
+          message: 'Nenhum campo para atualizar'
+        });
+      }
+      
+      const query = {
+        sql: `UPDATE sis_cliente SET ${fields.join(', ')} WHERE ${whereField} = :${whereField}`,
+        params
+      };
+      
+      const result = await MkAuthAgentService.executeQuery(tenant, query);
+      
+      // Adapta UPDATE (busca o registro atualizado)
+      const updatedClient = await MkAuthResponseAdapter.adaptUpdate(
+        result,
+        tenant,
+        'sis_cliente',
+        whereField,
+        whereValue
+      );
+      
+      if (!updatedClient) {
+        return res.status(404).json({
+          message: 'Cliente não encontrado após atualização'
+        });
+      }
+      
+      logger.info({
+        clientId: whereValue,
+        clientType: whereField,
+        tenant: tenant.nome,
+        updatedFields: Object.keys(updateData)
+      }, 'Cliente atualizado com sucesso');
+      
+      return res.json(updatedClient);
+      
+    } catch (error) {
+      logger.error({ 
+        clientId: loginParam,
+        error: error.message,
+        stack: error.stack 
+      }, 'Erro ao atualizar cliente');
+      
+      return res.status(500).json({ 
+        message: 'Erro ao atualizar cliente',
+        error: error.message 
+      });
+    }
+  }
   
   /**
    * Remove um cliente
