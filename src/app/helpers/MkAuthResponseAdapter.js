@@ -114,15 +114,9 @@ class MkAuthResponseAdapter {
       return null; // Nenhum registro foi atualizado
     }
     
-    // Faz query adicional para buscar o registro atualizado
-    const query = {
-      sql: `SELECT * FROM ${tableName} WHERE ${idField} = :${idField} LIMIT 1`,
-      params: { [idField]: idValue }
-    };
-    
-    const result = await MkAuthAgentService.executeQuery(tenant, query);
-    
-    return this.adaptSelect(result, true);
+    // Retorna confirmação simples de sucesso
+    // O cliente já foi retornado pela primeira SELECT após UPDATE no controller
+    return { success: true, affected_rows: apiResponse.affected_rows };
   }
   
   /**

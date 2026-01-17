@@ -452,8 +452,8 @@ class ClientController {
       
       const result = await MkAuthAgentService.executeQuery(tenant, query);
       
-      // Adapta UPDATE (busca o registro atualizado)
-      const updatedClient = await MkAuthResponseAdapter.adaptUpdate(
+      // Adapta UPDATE (apenas confirma sucesso)
+      const updateResult = await MkAuthResponseAdapter.adaptUpdate(
         result,
         tenant,
         'sis_cliente',
@@ -461,9 +461,26 @@ class ClientController {
         whereValue
       );
       
+      if (!updateResult) {
+        return res.status(404).json({
+          message: 'Cliente não encontrado - nenhum registro foi atualizado'
+        });
+      }
+      
+      // Busca o cliente atualizado com a field correta
+      let fetchQuery;
+      if (isLoginFormat) {
+        fetchQuery = MkAuthAgentService.queries.buscarClientePorLogin(loginParam);
+      } else {
+        fetchQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
+      }
+      
+      const fetchResult = await MkAuthAgentService.executeQuery(tenant, fetchQuery);
+      const updatedClient = MkAuthResponseAdapter.adaptSelect(fetchResult, true);
+      
       if (!updatedClient) {
         return res.status(404).json({
-          message: 'Cliente não encontrado após atualização'
+          message: 'Erro ao recuperar dados do cliente após atualização'
         });
       }
       
