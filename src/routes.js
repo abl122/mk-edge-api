@@ -801,39 +801,15 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
       const fetchResult = await MkAuthAgentService.buscarClienteAuto(tenant, loginParam);
       console.log('📊 [Client.update] Fetch result:', fetchResult);
       
-      let fetchSql;
-      let fetchParams = [];
-      
       if (fetchResult && fetchResult.data && fetchResult.data.length > 0) {
         updatedClient = fetchResult.data[0];
+        console.log('📦 [Client.update] Cliente após update:', {
+          id: updatedClient.id,
+          login: updatedClient.login,
+          nome: updatedClient.nome
+        });
       } else {
-        // Fallback: fetch manual
-        fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
-                           cli_ativado, bloqueado, observacao, rem_obs,
-                           ip, mac, automac, equipamento, ssid,
-                           endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
-                           fone, celular, ramal, email,
-                           coordenadas, caixa_herm, porta_olt, porta_splitter,
-                           status_corte, cadastro, data_ins,
-                           tit_abertos, tit_vencidos
-                    FROM sis_cliente 
-                    WHERE login = ?
-                    LIMIT 1`;
-        fetchParams = [loginParam];
-      
-      if (!fetchSql) {
-        fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
-                           cli_ativado, bloqueado, observacao, rem_obs,
-                           ip, mac, automac, equipamento, ssid,
-                           endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
-                           fone, celular, ramal, email,
-                           coordenadas, caixa_herm, porta_olt, porta_splitter,
-                           status_corte, cadastro, data_ins,
-                           tit_abertos, tit_vencidos
-                    FROM sis_cliente 
-                    WHERE id = ?
-                    LIMIT 1`;
-        fetchParams = [parseInt(loginParam)];
+        console.warn('⚠️ [Client.update] Cliente não encontrado após update');
       }
     } catch (err) {
       console.warn('⚠️ [Client.update] Erro ao buscar cliente atualizado:', err.message);
