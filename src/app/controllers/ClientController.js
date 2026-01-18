@@ -35,17 +35,17 @@ class ClientController {
         tenant_agente_url: tenant?.agente?.url
       });
       
-      // Busca cliente automaticamente (detecta login vs ID)
-      const isLoginFormat = (id.length === 11 || id.length === 14);
-      const operation = isLoginFormat ? 'buscarClientePorLogin' : 'buscarCliente';
-      const result = await MkAuthAgentService.execute(tenant, operation, id);
+      // Busca cliente automaticamente (login ou ID)
+      const result = await MkAuthAgentService.buscarClienteAuto(tenant, id);
       
-      console.log('\n🔍 [DEBUG] ClientController.showById result:', {
-        type: typeof result,
-        keys: result ? Object.keys(result) : null,
-        has_data: !!result?.data,
-        data_length: result?.data?.length,
-        data: result?.data
+      console.log('\n🔍 [DEBUG ClientController.showById]', {
+        id,
+        resultIsNull: result === null,
+        resultIsUndefined: result === undefined,
+        resultType: typeof result,
+        resultKeys: result ? Object.keys(result) : 'N/A',
+        resultData: result?.data,
+        resultDataLength: result?.data?.length
       });
       
       logger.info('[ClientController.showById] Resultado completo do agente', {
@@ -58,10 +58,11 @@ class ClientController {
         result_count: result?.count
       });
       
-      if (!result.data || result.data.length === 0) {
+      if (!result || !result.data || result.data.length === 0) {
         console.log('🚨 [DEBUG] Retornando 404 - resultado vazio');
         logger.warn('[ClientController.showById] Cliente não encontrado', {
           client_id: id,
+          result: result ? 'existe' : 'null',
           has_data: !!result?.data,
           data_length: result?.data?.length
         });
@@ -332,15 +333,9 @@ class ClientController {
         whereValue
       });
       
-      // Verifica se cliente existe
-      let checkQuery;
-      if (isLoginFormat) {
-        checkQuery = MkAuthAgentService.queries.clientePorLogin(loginParam);
-      } else {
-        checkQuery = MkAuthAgentService.queries.buscarCliente(whereValue);
-      }
-      const checkResult = await MkAuthAgentService.executeQuery(tenant, checkQuery);
-      const existingClient = MkAuthResponseAdapter.adaptSelect(checkResult, true);
+      // Verifica se cliente existe - aceita login ou ID
+      const checkResult = await MkAuthAgentService.buscarClienteAuto(tenant, loginParam);
+      const existingClient = checkResult?.data?.[0];
       
       if (!existingClient) {
         return res.status(404).json({ 

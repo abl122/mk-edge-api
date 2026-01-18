@@ -1411,26 +1411,33 @@ class MkAuthAgentService {
   static async buscarClienteAuto(tenant, identifier) {
     const identifierStr = String(identifier).trim();
     
+    console.log(`[buscarClienteAuto] Buscando: "${identifierStr}"`);
+    
     // Tenta como login primeiro (CPF/CNPJ)
     try {
       const loginResult = await this.execute(tenant, 'buscarClientePorLogin', identifierStr);
+      console.log(`[buscarClienteAuto] Tentou como login, encontrado: ${loginResult?.data?.length || 0} registros`);
       if (loginResult.data && loginResult.data.length > 0) {
         return loginResult;
       }
     } catch (err) {
-      // Se falhar, continua para tentar como ID
+      console.log(`[buscarClienteAuto] Erro ao tentar login: ${err.message}`);
     }
     
     // Tenta como ID (numérico)
     try {
-      const idResult = await this.execute(tenant, 'buscarCliente', parseInt(identifierStr) || identifierStr);
+      const numId = parseInt(identifierStr);
+      console.log(`[buscarClienteAuto] Tentando como ID: ${numId}`);
+      const idResult = await this.execute(tenant, 'buscarCliente', numId || identifierStr);
+      console.log(`[buscarClienteAuto] Tentou como ID, encontrado: ${idResult?.data?.length || 0} registros`);
       if (idResult.data && idResult.data.length > 0) {
         return idResult;
       }
     } catch (err) {
-      // Se falhar, retorna vazio
+      console.log(`[buscarClienteAuto] Erro ao tentar ID: ${err.message}`);
     }
     
+    console.log(`[buscarClienteAuto] Nenhum resultado encontrado para "${identifierStr}"`);
     // Retorna resultado vazio se não encontrou
     return { data: [], success: true };
   }
