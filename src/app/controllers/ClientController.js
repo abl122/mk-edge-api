@@ -321,16 +321,13 @@ class ClientController {
         });
       }
       
-      // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico até 10 dígitos)
-      // CPF = 11 dígitos, CNPJ = 14 dígitos
-      const isLoginFormat = (loginParam.length === 11 || loginParam.length === 14);
-      const whereField = isLoginFormat ? 'login' : 'id';
-      const whereValue = isLoginFormat ? loginParam : parseInt(loginParam);
+      // Assume que é sempre um login/identificador, não tenta detectar tipo
+      // Deixa o banco tentar encontrar como login primeiro, depois como ID
+      const whereField = 'login';  // Sempre usa login como base
+      const whereValue = loginParam;
       
-      logger.info('[ClientController.update] Detectando tipo de identificador', {
+      logger.info('[ClientController.update] Atualizando cliente', {
         loginParam,
-        loginLength: loginParam.length,
-        isLoginFormat,
         whereField,
         whereValue
       });
@@ -354,7 +351,6 @@ class ClientController {
       // Monta query UPDATE dinâmica
       const fields = [];
       const params = {};
-      params[whereField] = whereValue;
       
       if (updateData.nome) {
         fields.push('nome = :nome');
@@ -445,20 +441,38 @@ class ClientController {
         });
       }
       
-      const query = {
-        sql: `UPDATE sis_cliente SET ${fields.join(', ')} WHERE ${whereField} = :${whereField}`,
-        params
+      // Tenta UPDATE com login primeiro, depois com ID se não encontrar
+      let result = null;
+      let usedField = 'login';
+      
+      // Primeira tentativa: UPDATE WHERE login = :login
+      let query = {
+        sql: `UPDATE sis_cliente SET ${fields.join(', ')} WHERE login = :login`,
+        params: { ...params, login: loginParam }
       };
       
-      const result = await MkAuthAgentService.executeQuery(tenant, query);
+      result = await MkAuthAgentService.executeQuery(tenant, query);
+      
+      // Se não encontrou (affected_rows = 0), tenta com ID
+      if (result.affected_rows === 0) {
+        usedField = 'id';
+        const idValue = parseInt(loginParam);
+        if (!isNaN(idValue)) {
+          query = {
+            sql: `UPDATE sis_cliente SET ${fields.join(', ')} WHERE id = :id`,
+            params: { ...params, id: idValue }
+          };
+          result = await MkAuthAgentService.executeQuery(tenant, query);
+        }
+      }
       
       // Adapta UPDATE (apenas confirma sucesso)
       const updateResult = await MkAuthResponseAdapter.adaptUpdate(
         result,
         tenant,
         'sis_cliente',
-        whereField,
-        whereValue
+        usedField,
+        usedField === 'login' ? loginParam : parseInt(loginParam)
       );
       
       if (!updateResult) {

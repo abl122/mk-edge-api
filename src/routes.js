@@ -462,16 +462,8 @@ routes.put('/client/:login', tenantMiddleware, async (req, res) => {
   const logger = require('./logger');
   
   try {
-    // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico)
-    const isLoginFormat = (loginParam.length === 11 || loginParam.length === 14);
-    const whereField = isLoginFormat ? 'login' : 'id';
-    const whereValue = isLoginFormat ? loginParam : parseInt(loginParam);
-    
-    logger.info('[Client.update] Detectando tipo', {
-      loginParam,
-      isLoginFormat,
-      whereField,
-      whereValue
+    logger.info('[Client.update] Iniciando atualização', {
+      loginParam
     });
     
     // Monta query UPDATE dinâmica
@@ -584,59 +576,27 @@ routes.put('/client/:login', tenantMiddleware, async (req, res) => {
       });
     }
     
-    const sql = `UPDATE sis_cliente SET ${fields.join(', ')} WHERE ${whereField} = ?`;
-    params.push(whereValue);
+    // Tenta UPDATE com login primeiro
+    const sqlLogin = `UPDATE sis_cliente SET ${fields.join(', ')} WHERE login = ?`;
+    const sqlLoginParams = [...params, loginParam];
     
-    console.log('📝 SQL:', sql);
-    console.log('📊 Parâmetros:', params);
+    console.log('📝 SQL:', sqlLogin);
+    console.log('📊 Parâmetros:', sqlLoginParams);
     
-    const result = await MkAuthAgentService.sendToAgent(
+    let result = await MkAuthAgentService.sendToAgent(
       tenant,
-      sql,
-      params
+      sqlLogin,
+      sqlLoginParams
     );
     
     console.log('✅ [Client.update] Resultado do agente:', result);
     
-    // Busca os dados atualizados do cliente
+    // Busca os dados atualizados do cliente usando buscarClienteAuto
     let updatedClient = null;
     try {
-      let fetchSql;
-      let fetchParams = [];
-      
-      if (isLoginFormat) {
-        fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
-                           cli_ativado, bloqueado, observacao, rem_obs,
-                           ip, mac, automac, equipamento, ssid,
-                           endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
-                           fone, celular, ramal, email,
-                           coordenadas, caixa_herm, porta_olt, porta_splitter,
-                           status_corte, cadastro, data_ins,
-                           tit_abertos, tit_vencidos
-                    FROM sis_cliente 
-                    WHERE login = ?
-                    LIMIT 1`;
-        fetchParams = [loginParam];
-      } else {
-        fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
-                           cli_ativado, bloqueado, observacao, rem_obs,
-                           ip, mac, automac, equipamento, ssid,
-                           endereco_res, numero_res, bairro_res, complemento_res, cep_res, cidade_res,
-                           fone, celular, ramal, email,
-                           coordenadas, caixa_herm, porta_olt, porta_splitter,
-                           status_corte, cadastro, data_ins,
-                           tit_abertos, tit_vencidos
-                    FROM sis_cliente 
-                    WHERE id = ?
-                    LIMIT 1`;
-        fetchParams = [whereValue];
-      }
-      
-      const fetchResult = await MkAuthAgentService.sendToAgent(tenant, fetchSql, fetchParams);
-      console.log('📊 [Client.update] Fetch result:', fetchResult);
-      
-      if (fetchResult && fetchResult.data && fetchResult.data.length > 0) {
-        updatedClient = fetchResult.data[0];
+      const clientResult = await MkAuthAgentService.buscarClienteAuto(tenant, loginParam);
+      if (clientResult && clientResult.data && clientResult.data.length > 0) {
+        updatedClient = clientResult.data[0];
         console.log('📦 [Client.update] Cliente após update:', {
           id: updatedClient.id,
           login: updatedClient.login,
@@ -645,7 +605,7 @@ routes.put('/client/:login', tenantMiddleware, async (req, res) => {
           nome: updatedClient.nome
         });
       } else {
-        console.warn('⚠️ [Client.update] Cliente não encontrado após update - fetchResult:', fetchResult);
+        console.warn('⚠️ [Client.update] Cliente não encontrado após update');
       }
     } catch (err) {
       console.warn('⚠️ [Client.update] Erro ao buscar cliente atualizado:', err.message);
@@ -653,8 +613,6 @@ routes.put('/client/:login', tenantMiddleware, async (req, res) => {
     
     logger.info('[Client.update] Cliente atualizado com sucesso', {
       loginParam,
-      whereField,
-      whereValue,
       updatedFields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
       updatedClientFound: !!updatedClient
     });
@@ -690,16 +648,8 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
   const logger = require('./logger');
   
   try {
-    // Diferencia se é login (CPF/CNPJ com 11-14 chars) ou ID (numérico)
-    const isLoginFormat = (loginParam.length === 11 || loginParam.length === 14);
-    const whereField = isLoginFormat ? 'login' : 'id';
-    const whereValue = isLoginFormat ? loginParam : parseInt(loginParam);
-    
-    logger.info('[Client.update] Detectando tipo', {
-      loginParam,
-      isLoginFormat,
-      whereField,
-      whereValue
+    logger.info('[Client.update] Iniciando atualização via POST', {
+      loginParam
     });
     
     // Monta query UPDATE dinâmica
@@ -812,27 +762,52 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
       });
     }
     
-    const sql = `UPDATE sis_cliente SET ${fields.join(', ')} WHERE ${whereField} = ?`;
-    params.push(whereValue);
+    // Tenta UPDATE com login primeiro
+    const updateParams = [...params, loginParam];
+    let sql = `UPDATE sis_cliente SET ${fields.join(', ')} WHERE login = ?`;
     
-    console.log('📝 SQL:', sql);
-    console.log('📊 Parâmetros:', params);
+    console.log('📝 SQL (tentativa 1 - login):', sql);
+    console.log('📊 Parâmetros:', updateParams);
     
-    const result = await MkAuthAgentService.sendToAgent(
+    let result = await MkAuthAgentService.sendToAgent(
       tenant,
       sql,
-      params
+      updateParams
     );
     
-    console.log('✅ [Client.update] Resultado do agente:', result);
+    console.log('✅ [Client.update] Resultado do agente (tentativa 1):', result);
     
-    // Busca os dados atualizados do cliente
+    // Se não atualizou, tenta com ID
+    if (result.affected_rows === 0) {
+      console.warn('⚠️ [Client.update] UPDATE com login falhou, tentando com ID');
+      const idParams = [...params, parseInt(loginParam)];
+      sql = `UPDATE sis_cliente SET ${fields.join(', ')} WHERE id = ?`;
+      
+      console.log('📝 SQL (tentativa 2 - id):', sql);
+      console.log('📊 Parâmetros:', idParams);
+      
+      result = await MkAuthAgentService.sendToAgent(
+        tenant,
+        sql,
+        idParams
+      );
+      
+      console.log('✅ [Client.update] Resultado do agente (tentativa 2):', result);
+    }
+    
+    // Busca os dados atualizados do cliente usando buscarClienteAuto
     let updatedClient = null;
     try {
+      const fetchResult = await MkAuthAgentService.buscarClienteAuto(tenant, loginParam);
+      console.log('📊 [Client.update] Fetch result:', fetchResult);
+      
       let fetchSql;
       let fetchParams = [];
       
-      if (isLoginFormat) {
+      if (fetchResult && fetchResult.data && fetchResult.data.length > 0) {
+        updatedClient = fetchResult.data[0];
+      } else {
+        // Fallback: fetch manual
         fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
                            cli_ativado, bloqueado, observacao, rem_obs,
                            ip, mac, automac, equipamento, ssid,
@@ -845,7 +820,8 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
                     WHERE login = ?
                     LIMIT 1`;
         fetchParams = [loginParam];
-      } else {
+      
+      if (!fetchSql) {
         fetchSql = `SELECT id, login, nome, cpf_cnpj, senha, plano, tipo, 
                            cli_ativado, bloqueado, observacao, rem_obs,
                            ip, mac, automac, equipamento, ssid,
@@ -857,23 +833,7 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
                     FROM sis_cliente 
                     WHERE id = ?
                     LIMIT 1`;
-        fetchParams = [whereValue];
-      }
-      
-      const fetchResult = await MkAuthAgentService.sendToAgent(tenant, fetchSql, fetchParams);
-      console.log('📊 [Client.update] Fetch result:', fetchResult);
-      
-      if (fetchResult && fetchResult.data && fetchResult.data.length > 0) {
-        updatedClient = fetchResult.data[0];
-        console.log('📦 [Client.update] Cliente após update:', {
-          id: updatedClient.id,
-          login: updatedClient.login,
-          endereco_res: updatedClient.endereco_res,
-          numero_res: updatedClient.numero_res,
-          nome: updatedClient.nome
-        });
-      } else {
-        console.warn('⚠️ [Client.update] Cliente não encontrado após update - fetchResult:', fetchResult);
+        fetchParams = [parseInt(loginParam)];
       }
     } catch (err) {
       console.warn('⚠️ [Client.update] Erro ao buscar cliente atualizado:', err.message);
@@ -881,8 +841,6 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
     
     logger.info('[Client.update] Cliente atualizado com sucesso', {
       loginParam,
-      whereField,
-      whereValue,
       updatedFields: Object.keys(updateData).filter(k => updateData[k] !== undefined),
       updatedClientFound: !!updatedClient
     });
