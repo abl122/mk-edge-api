@@ -479,9 +479,9 @@ class MkAuthAgentService {
                      status_corte, cadastro, data_ins,
                      tit_abertos, tit_vencidos
               FROM sis_cliente
-              WHERE id = :clientId
+              WHERE id = ?
               LIMIT 1`,
-        params: { clientId }
+        params: [clientId]
       };
     },
     
