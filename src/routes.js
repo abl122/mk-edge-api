@@ -1059,8 +1059,8 @@ routes.get('/invoices/:client_id', async (req, res) => {
   const crypto = require('crypto');
   
   try {
-    // Tenta buscar o cliente para pegar o login
-    const clientResult = await MkAuthAgentService.execute(req.tenant, 'buscarCliente', clientIdOrLogin);
+    // Tenta buscar o cliente para pegar o login - aceita login ou ID
+    const clientResult = await MkAuthAgentService.buscarClienteAuto(req.tenant, clientIdOrLogin);
     const client = clientResult?.data?.[0];
     
     if (!client || !client.login) {
@@ -1200,8 +1200,8 @@ routes.get('/connections/:client_id', async (req, res) => {
   const clientIdOrLogin = req.params.client_id;
   
   try {
-    // Tenta buscar o cliente para pegar o login
-    const clientResult = await MkAuthAgentService.execute(req.tenant, 'buscarCliente', clientIdOrLogin);
+    // Tenta buscar o cliente para pegar o login - aceita login ou ID
+    const clientResult = await MkAuthAgentService.buscarClienteAuto(req.tenant, clientIdOrLogin);
     const client = clientResult?.data?.[0];
     
     if (!client || !client.login) {
@@ -1262,8 +1262,8 @@ routes.get('/requests/history', async (req, res) => {
       });
     }
     
-    // Busca cliente para pegar o login
-    const clientResult = await MkAuthAgentService.execute(req.tenant, 'buscarCliente', client_id);
+    // Busca cliente para pegar o login - aceita login ou ID
+    const clientResult = await MkAuthAgentService.buscarClienteAuto(req.tenant, client_id);
     const client = clientResult?.data?.[0];
     
     if (!client || !client.login) {
@@ -1365,12 +1365,12 @@ routes.post('/request', async (req, res) => {
       });
     }
     
-    // ✅ BUSCA: Nome do cliente + email + ramal
+    // ✅ BUSCA: Nome do cliente + email + ramal - aceita login ou ID
     let nomeCliente = '';
     let emailCliente = null;
     let ramalCliente = null;
     try {
-      const clienteResult = await MkAuthAgentService.execute(tenant, 'buscarCliente', client_id);
+      const clienteResult = await MkAuthAgentService.buscarClienteAuto(tenant, client_id);
       const cliente = clienteResult?.data?.[0];
       if (cliente) {
         nomeCliente = cliente.nome || '';
