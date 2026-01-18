@@ -1063,12 +1063,10 @@ routes.post('/client/:id', tenantMiddleware, async (req, res) => {
     
     console.log('✅ [Client.update] Resultado do agente:', result);
     
-    // Busca os dados atualizados do cliente
+    // Busca os dados atualizados do cliente (tenta login ou ID automaticamente)
     let updatedClient = null;
     try {
-      const isNumeric = !isNaN(clientId) && !isNaN(parseFloat(clientId));
-      const operation = isNumeric ? 'buscarCliente' : 'buscarClientePorLogin';
-      const clientResult = await MkAuthAgentService.execute(tenant, operation, clientId);
+      const clientResult = await MkAuthAgentService.buscarClienteAuto(tenant, clientId);
       
       if (clientResult.data && clientResult.data.length > 0) {
         updatedClient = clientResult.data[0];

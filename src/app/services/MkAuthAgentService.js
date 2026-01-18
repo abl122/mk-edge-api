@@ -1399,6 +1399,41 @@ class MkAuthAgentService {
     // Retorna objeto completo com data, count, success
     return result;
   }
+
+  /**
+   * Busca cliente automaticamente detectando se é login ou ID
+   * Tenta primeiro como login (CPF/CNPJ), depois como ID numérico
+   * 
+   * @param {Object} tenant - Objeto do tenant/provedor
+   * @param {String|Number} identifier - Login (CPF/CNPJ) ou ID do cliente
+   * @returns {Promise<Object>} Dados do cliente ou vazio
+   */
+  static async buscarClienteAuto(tenant, identifier) {
+    const identifierStr = String(identifier).trim();
+    
+    // Tenta como login primeiro (CPF/CNPJ)
+    try {
+      const loginResult = await this.execute(tenant, 'buscarClientePorLogin', identifierStr);
+      if (loginResult.data && loginResult.data.length > 0) {
+        return loginResult;
+      }
+    } catch (err) {
+      // Se falhar, continua para tentar como ID
+    }
+    
+    // Tenta como ID (numérico)
+    try {
+      const idResult = await this.execute(tenant, 'buscarCliente', parseInt(identifierStr) || identifierStr);
+      if (idResult.data && idResult.data.length > 0) {
+        return idResult;
+      }
+    } catch (err) {
+      // Se falhar, retorna vazio
+    }
+    
+    // Retorna resultado vazio se não encontrou
+    return { data: [], success: true };
+  }
   
   /**
    * Executa uma query SQL customizada (use com cuidado!)

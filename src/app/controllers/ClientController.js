@@ -35,8 +35,7 @@ class ClientController {
         tenant_agente_url: tenant?.agente?.url
       });
       
-      // Busca cliente por ID ou Login
-      // Diferencia: CPF/CNPJ têm 11-14 dígitos, ID é menor
+      // Busca cliente automaticamente (detecta login vs ID)
       const isLoginFormat = (id.length === 11 || id.length === 14);
       const operation = isLoginFormat ? 'buscarClientePorLogin' : 'buscarCliente';
       const result = await MkAuthAgentService.execute(tenant, operation, id);

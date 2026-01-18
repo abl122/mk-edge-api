@@ -184,12 +184,8 @@ class UserConnectionsController {
         });
       }
       
-      // Busca dados do cliente via agente
-      const clientes = await MkAuthAgentService.execute(
-        tenant,
-        'buscarCliente',
-        client_id
-      );
+      // Busca dados do cliente via agente (tenta login ou ID automaticamente)
+      const clientes = await MkAuthAgentService.buscarClienteAuto(tenant, client_id);
       
       if (!clientes || clientes.length === 0) {
         return res.status(404).json({
