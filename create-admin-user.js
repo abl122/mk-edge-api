@@ -15,7 +15,7 @@ async function createAdminUser() {
 
     // Credenciais padrão
     const adminLogin = 'admin';
-    const adminSenha = 'admin@12345'; // Deve ser alterada após primeiro login
+    const adminSenha = 'F@lcon2931'; // Deve ser alterada após primeiro login
     const adminNome = 'Administrador';
     const adminEmail = 'admin@mk-edge.com.br';
 
