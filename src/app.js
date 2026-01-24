@@ -24,7 +24,32 @@ app.use(helmet({
     },
   },
 }));
-app.use(cors());
+
+// CORS configurado para aceitar frontend
+const allowedOrigins = [
+  'https://mk-edge.com.br',
+  'http://mk-edge.com.br',
+  'http://localhost:5173',
+  'http://localhost:8080'
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Permitir requests sem origin (mobile apps, curl, etc)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS bloqueado para origem:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id']
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
