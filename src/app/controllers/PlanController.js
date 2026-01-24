@@ -12,20 +12,22 @@ class PlanController {
      */
     async list(req, res) {
         try {
-            const { tenant } = req;
-            const { active_only = false } = req.query;
+            const Plan = require('../schemas/Plan');
+            const { active_only = 'false' } = req.query;
+            
+            // Buscar tenant_id do header ou query
+            const tenantId = req.headers['x-tenant-id'] || req.query.tenant_id || req.user?.tenantId;
 
-            let plans = tenant.plans || [];
-
-            if (active_only) {
-                plans = plans.filter(p => p.ativo === true);
+            const query = {};
+            if (tenantId) {
+                query.tenant_id = tenantId;
+            }
+            
+            if (active_only === 'true') {
+                query.ativo = true;
             }
 
-            // Ordenar por ordem, depois ativos primeiro
-            plans.sort((a, b) => {
-                if (a.ordem !== b.ordem) return a.ordem - b.ordem;
-                return b.ativo - a.ativo;
-            });
+            const plans = await Plan.find(query).sort({ ordem: 1, ativo: -1 }).lean();
 
             return res.json({
                 success: true,

@@ -9,37 +9,110 @@ const logger = require('../../logger');
 
 class MessageController {
   /**
-   * Lista mensagens de um cliente
-   * GET /messages?cliente_id=123
+   * Lista mensagens de um cliente ou chamado
+   * GET /messages?cliente_id=123 ou GET /messages?chamado=123
    */
   async show(req, res) {
     try {
       const { tenant } = req;
-      const { cliente_id, limit } = req.query;
+      const { cliente_id, chamado, limit } = req.query;
+      
+      console.log('📨 MessageController.show - START', {
+        chamado,
+        cliente_id,
+        tenant_nome: tenant?.nome,
+        usaAgente: tenant?.usaAgente?.()
+      });
       
       if (!tenant.usaAgente()) {
+        console.log('❌ Tenant não está usando agente');
         return res.status(400).json({
           error: 'Provedor não configurado para usar agente MK-Auth'
         });
       }
       
-      if (!cliente_id) {
+      // ✅ Suporta ambos os formatos: cliente_id ou chamado
+      const searchParam = cliente_id || chamado;
+      if (!searchParam) {
+        console.log('❌ Falta cliente_id ou chamado');
         return res.status(400).json({
-          error: 'ID do cliente é obrigatório'
+          error: 'cliente_id ou chamado é obrigatório'
         });
       }
       
-      // Busca mensagens via agente
-      const mensagens = await MkAuthAgentService.execute(
-        tenant,
-        'listarMensagens',
-        cliente_id,
-        limit ? parseInt(limit) : 100
-      );
+      let mensagens = [];
+      
+      // Se é um chamado (ID de chamado), buscar mensagens do chamado
+      if (chamado) {
+        console.log('📨 Buscando mensagens do chamado:', chamado);
+        
+        try {
+          // Usa a mesma query que MkAuthAgentService para garantir consistência
+          const queryDef = MkAuthAgentService.queries.chamadoCompletoComMensagens(chamado);
+          console.log('🔄 Enviando SQL ao agente...');
+          
+          const result = await MkAuthAgentService.sendToAgent(
+            tenant,
+            queryDef.sql,
+            queryDef.params
+          );
+          
+          console.log('✅ Resposta do agente recebida:', {
+            success: result.success,
+            count: result.data?.length || 0
+          });
+          
+          // Se retornou dados, extrai as mensagens
+          if (result.data && result.data.length > 0) {
+            const chamadoData = result.data[0];
+            try {
+              // Mensagens vêm em JSON dentro de mensagens_json
+              const mensagensJson = chamadoData.mensagens_json;
+              if (typeof mensagensJson === 'string') {
+                mensagens = JSON.parse(mensagensJson);
+              } else if (Array.isArray(mensagensJson)) {
+                mensagens = mensagensJson;
+              } else {
+                mensagens = [];
+              }
+            } catch (parseError) {
+              console.error('❌ Erro ao parsear mensagens JSON:', parseError);
+              mensagens = [];
+            }
+          }
+          
+          console.log(`📨 Processadas ${mensagens.length} mensagens do chamado ${chamado}`);
+        } catch (error) {
+          console.error('❌ Erro ao buscar mensagens do chamado:', {
+            error: error.message,
+            stack: error.stack,
+            chamado
+          });
+          logger.error('[MessageController.show] Erro ao buscar mensagens do chamado', {
+            error: error.message,
+            chamado
+          });
+          return res.status(500).json({
+            error: 'Erro ao buscar mensagens do chamado',
+            message: error.message
+          });
+        }
+      } else {
+        // Modo cliente_id (antigo)
+        console.log('[MessageController.show] Buscando mensagens do cliente:', cliente_id);
+        
+        mensagens = await MkAuthAgentService.execute(
+          tenant,
+          'listarMensagens',
+          cliente_id,
+          limit ? parseInt(limit) : 100
+        );
+      }
       
       logger.info(`[MessageController] ${mensagens.length} mensagens encontradas`, {
         provedor_id: tenant._id,
-        cliente_id
+        cliente_id,
+        chamado
       });
       
       return res.json(mensagens);
@@ -47,7 +120,8 @@ class MessageController {
     } catch (error) {
       logger.error('[MessageController] Erro ao buscar mensagens', {
         error: error.message,
-        cliente_id: req.query.cliente_id
+        cliente_id: req.query.cliente_id,
+        chamado: req.query.chamado
       });
       
       return res.status(500).json({

@@ -21,6 +21,7 @@ const UserSchema = new mongoose.Schema({
     sparse: true,
   },
   telefone: String,
+  celular: String,
   
   // Login e Senha
   login: {
@@ -73,6 +74,15 @@ const UserSchema = new mongoose.Schema({
   
   // Último login
   ultimo_login: Date,
+  
+  // Recuperação de senha
+  recuperacao_senha: {
+    codigo: String,
+    expira_em: Date,
+    metodo: String, // 'sms', 'email', 'whatsapp'
+    celular: String,
+    email_recovery: String
+  },
   
   // Metadados
   criado_em: {

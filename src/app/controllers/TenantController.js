@@ -82,13 +82,14 @@ class TenantController {
       if (!tenant) {
         logger.warn('Tenant não encontrado', { tenant_id: id });
         return res.status(404).json({
+          success: false,
           error: 'Tenant não encontrado'
         });
       }
 
       return res.json({
         success: true,
-        data: tenant
+        tenant: tenant
       });
 
     } catch (error) {
@@ -98,6 +99,7 @@ class TenantController {
       });
 
       return res.status(500).json({
+        success: false,
         error: 'Erro ao buscar tenant'
       });
     }

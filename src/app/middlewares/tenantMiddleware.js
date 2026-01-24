@@ -161,9 +161,49 @@ function tenantMiddleware(options = {}) {
 
 /**
  * Middleware que apenas injeta tenant se disponível (não obrigatório)
+ * Se nenhum tenant_id for fornecido, usa a primeira tenant ativa disponível
+ * Útil para admin acessar configurações de integração
  */
 function optionalTenantMiddleware() {
-  return tenantMiddleware({ required: false });
+  return async (req, res, next) => {
+    try {
+      // Extrai tenant_id
+      const tenantId = extractTenantId(req);
+
+      if (!tenantId) {
+        // Se nenhum tenant foi fornecido, tenta carregar o primeiro
+        const Tenant = require('../schemas/Tenant');
+        try {
+          const firstTenant = await Tenant.findOne({});
+          if (firstTenant) {
+            req.tenant = firstTenant;
+            req.tenant_id = firstTenant._id.toString();
+            logger.debug('Tenant padrão carregado para admin sem tenant_id', {
+              tenant_id: firstTenant._id
+            });
+            return next();
+          }
+        } catch (dbError) {
+          logger.warn('Erro ao carregar tenant padrão', {
+            error: dbError.message
+          });
+        }
+
+        // Nenhum tenant encontrado
+        req.tenant = null;
+        return next();
+      }
+
+      // Se tenant_id foi fornecido, usa a lógica normal
+      return tenantMiddleware({ required: false })(req, res, next);
+    } catch (error) {
+      logger.error('Erro no optionalTenantMiddleware', {
+        error: error.message
+      });
+      req.tenant = null;
+      next();
+    }
+  };
 }
 
 /**

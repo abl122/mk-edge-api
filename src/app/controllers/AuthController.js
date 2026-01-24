@@ -6,6 +6,9 @@
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const User = require('../schemas/User');
+const Tenant = require('../schemas/Tenant');
+const logger = require('../../logger');
 
 class AuthController {
   /**
@@ -16,11 +19,40 @@ class AuthController {
     try {
       const { username, password } = req.body;
 
-      // Credenciais hardcoded do admin
-      const ADMIN_USER = 'admin';
-      const ADMIN_PASS = 'F@lcon2931';
+      if (!username || !password) {
+        return res.status(400).json({
+          success: false,
+          message: 'Usuário e senha são obrigatórios'
+        });
+      }
 
-      if (username !== ADMIN_USER || password !== ADMIN_PASS) {
+      // Buscar usuário no MongoDB com role admin
+      const user = await User.findOne({ 
+        login: username,
+        roles: { $in: ['admin'] }
+      });
+
+      if (!user) {
+        logger.warn('Tentativa de login admin com usuário não encontrado', { username });
+        return res.status(401).json({
+          success: false,
+          message: 'Usuário ou senha incorretos'
+        });
+      }
+
+      // Verificar se usuário está bloqueado
+      if (user.bloqueado) {
+        logger.warn('Tentativa de login com usuário bloqueado', { username });
+        return res.status(401).json({
+          success: false,
+          message: 'Usuário bloqueado'
+        });
+      }
+
+      // Comparar senha
+      const senhaValida = await bcrypt.compare(password, user.senha);
+      if (!senhaValida) {
+        logger.warn('Tentativa de login admin com senha incorreta', { username });
         return res.status(401).json({
           success: false,
           message: 'Usuário ou senha incorretos'
@@ -29,21 +61,36 @@ class AuthController {
 
       // Gerar JWT
       const token = jwt.sign(
-        { role: 'admin', username: 'admin' },
+        { 
+          role: 'admin', 
+          username: user.login,
+          userId: user._id.toString()
+        },
         process.env.JWT_SECRET || 'mk-edge-secret-2026',
         { expiresIn: '24h' }
       );
+
+      // Atualizar último login
+      await User.updateOne(
+        { _id: user._id },
+        { ultimo_login: new Date() }
+      );
+
+      logger.info('Login admin realizado com sucesso', { username });
 
       res.json({
         success: true,
         token,
         user: {
-          username: 'admin',
+          id: user._id.toString(),
+          username: user.login,
+          nome: user.nome,
+          email: user.email,
           role: 'admin'
         }
       });
     } catch (error) {
-      console.error('Erro ao fazer login admin:', error);
+      logger.error('Erro ao fazer login admin:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao fazer login'
@@ -66,34 +113,33 @@ class AuthController {
         });
       }
 
-      // TODO: Buscar tenant no MongoDB por CNPJ
-      // const tenant = await Tenant.findOne({ 'provedor.cnpj': cnpj });
-      
-      // Mock para testes
-      const mockTenant = {
-        _id: 'mk-edge-test-001',
-        provedor: {
-          cnpj: '12345678901234',
-          nome: 'Provedor Test',
-          email: 'admin@provedor.com'
-        },
-        assinatura: {
-          plano: 'professional',
-          ativa: true
-        }
-      };
+      // Buscar usuário no MongoDB usando o login (CNPJ)
+      const user = await User.findOne({ 
+        login: cnpj,
+        roles: { $in: ['portal'] }
+      }).populate('tenant_id');
 
-      // Verificar CNPJ (mock)
-      if (cnpj !== mockTenant.provedor.cnpj) {
+      if (!user) {
+        logger.warn('Tentativa de login portal com CNPJ não encontrado', { cnpj });
         return res.status(401).json({
           success: false,
           message: 'CNPJ ou senha incorretos'
         });
       }
 
-      // Verificar senha (mock - em produção buscar do BD)
-      const correctPassword = 'senha123'; // Mock
-      if (password !== correctPassword) {
+      // Verificar se usuário está bloqueado
+      if (user.bloqueado) {
+        logger.warn('Tentativa de login portal com usuário bloqueado', { cnpj });
+        return res.status(401).json({
+          success: false,
+          message: 'Usuário bloqueado'
+        });
+      }
+
+      // Comparar senha
+      const senhaValida = await bcrypt.compare(password, user.senha);
+      if (!senhaValida) {
+        logger.warn('Tentativa de login portal com senha incorreta', { cnpj });
         return res.status(401).json({
           success: false,
           message: 'CNPJ ou senha incorretos'
@@ -103,26 +149,53 @@ class AuthController {
       // Gerar JWT
       const token = jwt.sign(
         { 
-          role: 'tenant',
-          tenantId: mockTenant._id,
-          cnpj: mockTenant.provedor.cnpj
+          role: 'portal',
+          userId: user._id.toString(),
+          tenantId: user.tenant_id._id.toString(),
+          login: user.login
         },
         process.env.JWT_SECRET || 'mk-edge-secret-2026',
         { expiresIn: '7d' }
       );
 
+      // Atualizar último login
+      await User.updateOne(
+        { _id: user._id },
+        { ultimo_login: new Date() }
+      );
+
+      logger.info('Login portal realizado com sucesso', { cnpj });
+
+      // Incluir token do agente no retorno para exibir na tela de instalacao
+      const agente = user.tenant_id?.agente || null;
+
       res.json({
         success: true,
         token,
+        user: {
+          id: user._id.toString(),
+          nome: user.nome,
+          email: user.email,
+          login: user.login,
+          role: 'portal',
+          tenant_id: user.tenant_id._id.toString()
+        },
         tenant: {
-          id: mockTenant._id,
-          nome: mockTenant.provedor.nome,
-          cnpj: mockTenant.provedor.cnpj,
-          plano: mockTenant.assinatura.plano
+          id: user.tenant_id._id.toString(),
+          nome: user.tenant_id.provedor?.nome || user.nome,
+          cnpj: user.login,
+          plano: user.tenant_id.plano_atual || 'trial',
+          agente: agente
+            ? {
+                url: agente.url || null,
+                token: agente.token || null,
+                ativo: agente.ativo ?? false
+              }
+            : null
         }
       });
     } catch (error) {
-      console.error('Erro ao fazer login portal:', error);
+      logger.error('Erro ao fazer login portal:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao fazer login'
@@ -187,27 +260,29 @@ class AuthController {
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'mk-edge-secret-2026');
       
-      // Mock data baseado no role
-      if (decoded.role === 'tenant') {
-        return res.json({
-          id: decoded.tenantId,
-          nome: 'Provedor Test',
-          cnpj: decoded.cnpj,
-          email: 'admin@provedor.com',
-          role: 'tenant',
-          plano: 'professional'
-        });
-      }
+      // Buscar usuário no MongoDB
+      const user = await User.findById(decoded.userId).lean();
       
-      if (decoded.role === 'admin') {
-        return res.json({
-          username: decoded.username,
-          role: 'admin'
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Usuário não encontrado'
         });
       }
 
-      res.json(decoded);
+      res.json({
+        success: true,
+        user: {
+          id: user._id.toString(),
+          nome: user.nome,
+          email: user.email,
+          login: user.login,
+          roles: user.roles,
+          tenant_id: user.tenant_id ? user.tenant_id.toString() : null
+        }
+      });
     } catch (error) {
+      logger.error('Erro ao obter dados do usuário:', error);
       res.status(401).json({
         success: false,
         message: 'Token inválido ou expirado'

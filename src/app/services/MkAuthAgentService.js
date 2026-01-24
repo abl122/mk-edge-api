@@ -861,7 +861,7 @@ class MkAuthAgentService {
      */
     chamadoCompletoComMensagens: (requestId) => {
       return {
-        sql: `SELECT @old_group_concat_max_len := @@group_concat_max_len, @group_concat_max_len := 1000000, s.id, s.chamado, s.visita, s.fechamento, s.motivo_fechar as motivo_fechamento, s.nome, s.login, s.tecnico, s.status, s.assunto, s.prioridade, c.id as client_id, c.senha, c.plano, c.tipo, c.ssid, c.ip, c.endereco_res as endereco, c.numero_res as numero, c.bairro_res as bairro, c.equipamento, c.coordenadas, c.observacao as observacoes, c.caixa_herm as caixa_hermetica, c.fone as telefone, c.celular, f.nome as employee_name, (SELECT IFNULL(CONCAT('[', GROUP_CONCAT(JSON_OBJECT('id', m.id, 'texto', m.msg, 'data', m.msg_data, 'atendente', m.atendente, 'tipo', COALESCE(m.tipo, 'tecnico')) ORDER BY m.msg_data DESC SEPARATOR ','), ']'), '[]') FROM sis_msg m WHERE m.chamado = s.chamado) as mensagens_json FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id WHERE s.id = :requestId LIMIT 1`,
+        sql: `SELECT @old_group_concat_max_len := @@group_concat_max_len, @group_concat_max_len := 1000000, s.id, s.chamado, s.visita, s.fechamento, s.motivo_fechar as motivo_fechamento, s.nome, s.login, s.tecnico, s.status, s.assunto, s.prioridade, c.id as client_id, c.senha, c.plano, c.tipo, c.ssid, c.ip, c.endereco_res as endereco, c.numero_res as numero, c.bairro_res as bairro, c.equipamento, c.coordenadas, c.observacao as observacoes, c.caixa_herm as caixa_hermetica, c.fone as telefone, c.celular, f.nome as employee_name, (SELECT IFNULL(CONCAT('[', GROUP_CONCAT(JSON_OBJECT('id', m.id, 'texto', m.msg, 'data', m.msg_data, 'timestamp', m.msg_data, 'atendente', m.atendente, 'tipo', COALESCE(m.tipo, 'tecnico')) ORDER BY m.msg_data ASC SEPARATOR ','), ']'), '[]') FROM sis_msg m WHERE m.chamado = s.chamado) as mensagens_json FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id WHERE s.id = :requestId LIMIT 1`,
         params: { requestId },
         transform: (rows) => {
           try {
@@ -943,6 +943,11 @@ class MkAuthAgentService {
             // TODO: Gerar URL do mapa estático se latitude/longitude existirem
             const static_map_url = null;
             
+            // ✅ ÚLTIMA NOTA: com ordenação ASC, a última posição é a mais recente
+            const ultimaNota = mensagens && mensagens.length > 0 
+              ? mensagens[mensagens.length - 1] 
+              : null;
+            
             const result = {
               id: row.id,
               client_id: row.client_id,
@@ -966,6 +971,8 @@ class MkAuthAgentService {
               equipamento: row.equipamento,
               coordenadas: row.coordenadas,
               mensagens: mensagens || [],
+              ultima_nota: ultimaNota,  // ✅ NOVA PROPRIEDADE: última nota do array
+              _mensagens_order: 'ASC',  // 📌 INDICADOR: mensagens em ordem ASC (mais antiga primeiro)
               observacoes: row.observacoes,
               caixa_hermetica: row.caixa_hermetica,
               employee_name: row.employee_name,
@@ -1470,6 +1477,16 @@ class MkAuthAgentService {
     
     const { url, token } = tenant.agente;
     const timestamp = Date.now();
+    const queryId = crypto.randomBytes(4).toString('hex'); // ID único para rastreamento
+    const startTime = Date.now();
+    
+    // Log de início da query
+    logger.debug('[MkAuthAgent] Query iniciada', {
+      queryId,
+      tenant: tenant.nome,
+      sqlPreview: sql.substring(0, 100).replace(/\n/g, ' ') + (sql.length > 100 ? '...' : ''),
+      paramsCount: Object.keys(params || {}).length
+    });
     
     // Encripta SQL se chave de encriptação estiver configurada
     let sqlToSend = sql;
@@ -1502,41 +1519,39 @@ class MkAuthAgentService {
         validateStatus: (status) => status < 500 // Não lança erro em 4xx
       });
       
-      // Verifica resposta
-      if (response.status !== 200) {
-        logger.error('Erro do agente', {
-          tenant: tenant.nome,
-          status: response.status,
-          error: response.data,
-          sql: sql.substring(0, 200)
-        });
-        
-        throw new Error(response.data?.error || `Erro ao comunicar com o agente (status ${response.status})`);
-      }
+      const duration = Date.now() - startTime;
+      
+      // Log de sucesso
+      logger.debug('[MkAuthAgent] Query completada com sucesso', {
+        queryId,
+        tenant: tenant.nome,
+        status: response.status,
+        duration: `${duration}ms`,
+        resultCount: response.data?.count || response.data?.data?.length || 0
+      });
 
       // Alguns agentes podem retornar string vazia em sucesso; normaliza para resposta vazia
       if (response.data === '') {
-        logger.warn('Agente retornou resposta vazia', {
+        const duration = Date.now() - startTime;
+        logger.warn('[MkAuthAgent] Agente retornou resposta vazia', {
+          queryId,
           tenant: tenant.nome,
-          sql: sql.substring(0, 200)
+          duration: `${duration}ms`,
+          sqlPreview: sql.substring(0, 100)
         });
         return { success: true, data: [], count: 0 };
       }
       
       if (!response.data.success) {
+        const duration = Date.now() - startTime;
         const agentError = response.data.error || 'Query falhou no agente';
-        // Log bruto para depuração rápida
-        try {
-          console.error('Agent error payload:', response.status, response.data, typeof response.data, JSON.stringify(response.data));
-        } catch (err) {
-          console.error('Agent error payload (stringify failed):', err.message);
-        }
-        logger.error('Query falhou no agente', {
+        logger.error('[MkAuthAgent] Query falhou no agente', {
+          queryId,
           tenant: tenant.nome,
+          duration: `${duration}ms`,
           error: agentError,
           debug: response.data.debug,
-          raw: response.data,
-          sql: sql.substring(0, 200)
+          sqlPreview: sql.substring(0, 100)
         });
         
         throw new Error(agentError);
@@ -1546,20 +1561,35 @@ class MkAuthAgentService {
       
     } catch (error) {
       // Tratamento de erros específicos
+      const duration = Date.now() - startTime;
+      
       if (error.code === 'ECONNREFUSED') {
-        logger.error({ tenant: tenant.nome }, 'Agente inacessível');
+        logger.error('[MkAuthAgent] Agente inacessível (ECONNREFUSED)', {
+          queryId,
+          tenant: tenant.nome,
+          duration: `${duration}ms`,
+          url
+        });
         throw new Error('Agente do provedor está offline');
       }
       
       if (error.code === 'ETIMEDOUT') {
-        logger.error({ tenant: tenant.nome }, 'Timeout ao comunicar com agente');
+        logger.error('[MkAuthAgent] Timeout ao comunicar com agente', {
+          queryId,
+          tenant: tenant.nome,
+          duration: `${duration}ms`,
+          timeout: '15s'
+        });
         throw new Error('Timeout ao consultar dados do provedor');
       }
       
-      logger.error('Erro ao chamar agente', {
+      logger.error('[MkAuthAgent] Erro ao chamar agente', {
+        queryId,
         tenant: tenant.nome,
+        duration: `${duration}ms`,
         error: error.message,
-        code: error.code
+        code: error.code,
+        sqlPreview: sql.substring(0, 100)
       });
       
       throw error;

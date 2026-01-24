@@ -10,12 +10,15 @@ const logger = require('../../logger');
 
 /**
  * Middleware de autenticação obrigatória
+ * Aceita JWT (Bearer) ou Basic Auth (compatibilidade com app antigo)
  */
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
+  console.log('🔐 authMiddleware - START', req.method, req.path);
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    const authHeader = req.headers.authorization;
 
-    if (!token) {
+    if (!authHeader) {
+      console.log('❌ authMiddleware - SEM TOKEN');
       logger.warn('Requisição sem token', {
         method: req.method,
         path: req.path,
@@ -28,28 +31,88 @@ function authMiddleware(req, res, next) {
       });
     }
 
-    // Valida token
-    const payload = AuthService.validarToken(token);
+    // Verifica se é JWT (Bearer) ou Basic Auth
+    if (authHeader.startsWith('Bearer ')) {
+      // Autenticação JWT
+      const token = authHeader.replace('Bearer ', '');
+      const payload = AuthService.validarToken(token);
 
-    // Injeta informações do usuário no request
-    req.user = {
-      id: payload.id,
-      login: payload.login,
-      email: payload.email,
-      nome: payload.nome,
-      tenant_id: payload.tenant_id,
-      roles: payload.roles,
-      permissoes: payload.permissoes
-    };
+      req.user = {
+        id: payload.id,
+        login: payload.login,
+        email: payload.email,
+        nome: payload.nome,
+        tenant_id: payload.tenant_id,
+        roles: payload.roles,
+        permissoes: payload.permissoes
+      };
+      req.tenant_id = payload.tenant_id;
 
-    // Também injeta tenant_id para compatibilidade
-    req.tenant_id = payload.tenant_id;
+      logger.debug('Usuário autenticado via JWT', {
+        user_id: payload.id,
+        tenant_id: payload.tenant_id,
+        login: payload.login
+      });
+    } else if (authHeader.startsWith('Basic ')) {
+      // Autenticação Basic (formato: Basic base64(login:timestamp))
+      const token = authHeader.replace('Basic ', '');
+      const decoded = Buffer.from(token, 'base64').toString('utf-8');
+      const [login, timestamp] = decoded.split(':');
 
-    logger.debug('Usuário autenticado', {
-      user_id: payload.id,
-      tenant_id: payload.tenant_id,
-      login: payload.login
-    });
+      if (!login || !timestamp) {
+        throw new Error('Basic Auth inválido');
+      }
+
+      // Valida timestamp (máximo 24 horas)
+      const now = Date.now();
+      const tokenAge = now - parseInt(timestamp);
+      const maxAge = 24 * 60 * 60 * 1000; // 24 horas
+
+      if (tokenAge > maxAge) {
+        throw new Error('Token expirado');
+      }
+
+      // Extrai tenant_id dos possíveis locais
+      let tenantId = req.tenant?._id || req.query.tenant_id || req.body.tenant_id;
+
+      // Se não encontrou tenant_id, tenta do header
+      if (!tenantId) {
+        tenantId = req.headers['x-tenant-id'];
+      }
+
+      // Carrega tenant do MongoDB se tenantId foi fornecido
+      if (tenantId) {
+        try {
+          const Tenant = require('../schemas/Tenant');
+          req.tenant = await Tenant.findById(tenantId);
+          
+          if (!req.tenant) {
+            throw new Error('Tenant não encontrado');
+          }
+        } catch (dbError) {
+          logger.warn('Erro ao carregar tenant para Basic Auth', {
+            tenant_id: tenantId,
+            error: dbError.message
+          });
+          // Continua mesmo se não conseguir carregar tenant
+        }
+      }
+
+      // Injeta informações básicas do usuário
+      req.user = {
+        login,
+        isAdmin: true, // Assume admin para compatibilidade
+        tenant_id: tenantId
+      };
+      req.tenant_id = tenantId;
+
+      logger.debug('Usuário autenticado via Basic Auth', {
+        login,
+        tenant_id: tenantId
+      });
+    } else {
+      throw new Error('Formato de autenticação não suportado');
+    }
 
     next();
 
@@ -60,7 +123,8 @@ function authMiddleware(req, res, next) {
     });
 
     return res.status(401).json({
-      error: 'Token inválido ou expirado'
+      error: 'Token inválido ou expirado',
+      message: error.message
     });
   }
 }

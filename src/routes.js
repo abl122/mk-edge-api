@@ -19,49 +19,10 @@ const AuthController = require('./app/controllers/AuthController');
 const InstallerController = require('./app/controllers/InstallerController');
 const TenantController = require('./app/controllers/TenantController');
 const PlanController = require('./app/controllers/PlanController');
+const RegisterController = require('./app/controllers/RegisterController');
 const TenantService = require('./app/services/TenantService');
-
-// ==================== MIDDLEWARES ====================
-
-const tenantMiddleware = async (req, res, next) => {
-  try {
-    // Busca tenant_id da query, body ou usa padrão
-    const tenantId = req.query.tenant_id || req.body?.tenant_id || req.headers['x-tenant-id'] || '63dd998b885eb427c8c51958';
-    
-    // Busca tenant real do MongoDB
-    const tenant = await TenantService.findById(tenantId);
-    
-    if (!tenant) {
-      return res.status(404).json({
-        error: 'Tenant não encontrado',
-        tenant_id: tenantId
-      });
-    }
-    
-    req.tenant = tenant;
-    next();
-  } catch (error) {
-    console.error('Erro ao carregar tenant:', error.message);
-    return res.status(500).json({
-      error: 'Erro ao carregar configurações do provedor',
-      message: error.message
-    });
-  }
-};
-
-const authMiddleware = (req, res, next) => {
-  // TODO: Implementar validação de autenticação
-  // Por enquanto, aceita qualquer requisição
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
-  if (token) {
-    // Token presente, continua
-    req.user = { id: 'mock-user' };
-    req.tenant_id = req.query.tenant_id || req.body?.tenant_id;
-  }
-  
-  next();
-};
+const { tenantMiddleware, optionalTenantMiddleware } = require('./app/middlewares/tenantMiddleware');
+const { authMiddleware } = require('./app/middlewares/authMiddleware');
 
 // ==================== ROTAS PÚBLICAS ====================
 
@@ -78,6 +39,103 @@ routes.get('/health', (req, res) => {
     service: 'Nova API MK-Edge',
     message: 'Servidor funcionando! Configure os controllers para habilitar as rotas completas'
   });
+});
+
+/**
+ * Registrar novo tenant + admin user
+ * POST /register
+ * Público (sem autenticação)
+ * Body: { nome, cnpj, email, telefone, admin_nome, admin_email, admin_telefone, senha, plan_slug, razao_social?, dominio? }
+ * Response: { success, user_id, tenant_id, subscription_id }
+ */
+routes.post('/register', RegisterController.store);
+
+/**
+ * Listar planos públicos (sem autenticação)
+ * GET /api/public/plans
+ * Query params: dominio (opcional)
+ */
+routes.get('/api/public/plans', async (req, res) => {
+  try {
+    const Plan = require('./app/schemas/Plan');
+    const Tenant = require('./app/schemas/Tenant');
+    const { dominio } = req.query;
+
+    let query = { ativo: true };
+    
+    // Se domínio foi fornecido, buscar o tenant e seus planos
+    if (dominio) {
+      const tenant = await Tenant.findOne({ 'provedor.dominio': dominio }).lean();
+      if (!tenant) {
+        return res.status(404).json({
+          success: false,
+          message: 'Domínio não encontrado'
+        });
+      }
+      query.tenant_id = tenant._id;
+    }
+
+    const plans = await Plan.find(query)
+      .select('_id nome descricao valor_mensal recursos ativo ordem')
+      .sort({ ordem: 1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      plans,
+      total: plans.length
+    });
+  } catch (error) {
+    console.error('Erro ao listar planos públicos:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao listar planos'
+    });
+  }
+});
+
+/**
+ * Listar planos públicos (SEM /api prefix - para publicFetch)
+ * GET /public/plans
+ * Query params: dominio (opcional)
+ * Se dominio for fornecido e existir, retorna planos desse tenant
+ * Se dominio não existir ou não for fornecido, retorna TODOS os planos ativos
+ */
+routes.get('/public/plans', async (req, res) => {
+  try {
+    const Plan = require('./app/schemas/Plan');
+    const Tenant = require('./app/schemas/Tenant');
+    const { dominio } = req.query;
+
+    let query = { ativo: true };
+    
+    // Se domínio foi fornecido, tentar buscar o tenant
+    if (dominio) {
+      const tenant = await Tenant.findOne({ 'provedor.dominio': dominio }).lean();
+      
+      if (tenant) {
+        query.tenant_id = tenant._id;
+      }
+      // Se tenant não encontrado, retorna todos os planos ativos (sem filtro de tenant_id)
+    }
+
+    const plans = await Plan.find(query)
+      .select('_id nome descricao valor_mensal recursos ativo ordem')
+      .sort({ ordem: 1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      plans,
+      total: plans.length
+    });
+  } catch (error) {
+    console.error('❌ Erro ao listar planos públicos:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao listar planos'
+    });
+  }
 });
 
 /**
@@ -119,7 +177,7 @@ routes.get('/api/status', (req, res) => res.json(apiInfo));
  * Ping do agente MK-Auth
  * GET /agent/ping
  */
-routes.get('/agent/ping', tenantMiddleware, async (req, res) => {
+routes.get('/agent/ping', tenantMiddleware(), async (req, res) => {
   try {
     const ok = await MkAuthAgentService.ping(req.tenant);
     res.json({ agent: req.tenant.agente.url, ok });
@@ -132,7 +190,7 @@ routes.get('/agent/ping', tenantMiddleware, async (req, res) => {
  * Teste simples de query no agente
  * GET /agent/test
  */
-routes.get('/agent/test', tenantMiddleware, async (req, res) => {
+routes.get('/agent/test', tenantMiddleware(), async (req, res) => {
   try {
     const result = await MkAuthAgentService.executeCustom(req.tenant, 'SELECT 1 AS ok', {});
     res.json({ ok: true, result });
@@ -147,7 +205,7 @@ routes.get('/agent/test', tenantMiddleware, async (req, res) => {
  * Login do cliente
  * POST /sessions
  */
-routes.post('/sessions', tenantMiddleware, SessionController.store);
+routes.post('/sessions', tenantMiddleware(), SessionController.store);
 
 // ==================== ROTAS DE AUTENTICAÇÃO ====================
 
@@ -184,6 +242,45 @@ routes.get('/api/auth/verify', AuthController.verify);
  * Headers: Authorization: Bearer {token}
  */
 routes.get('/api/me', AuthController.me);
+
+// ==================== ROTAS DE RECUPERAÇÃO DE SENHA ====================
+
+const PasswordRecoveryController = require('./app/controllers/PasswordRecoveryController');
+
+/**
+ * Obter contatos mascarados
+ * GET /api/auth/password-recovery/contacts?identifier=admin
+ * Público - sem autenticação
+ */
+routes.get('/api/auth/password-recovery/contacts', PasswordRecoveryController.getContacts);
+
+/**
+ * Solicitar código via SMS
+ * POST /api/auth/password-recovery/request-sms
+ * Público - sem autenticação
+ */
+routes.post('/api/auth/password-recovery/request-sms', PasswordRecoveryController.requestSmsRecovery);
+
+/**
+ * Solicitar código via Email
+ * POST /api/auth/password-recovery/request-email
+ * Público - sem autenticação
+ */
+routes.post('/api/auth/password-recovery/request-email', PasswordRecoveryController.requestEmailRecovery);
+
+/**
+ * Solicitar código via WhatsApp
+ * POST /api/auth/password-recovery/request-whatsapp
+ * Público - sem autenticação
+ */
+routes.post('/api/auth/password-recovery/request-whatsapp', PasswordRecoveryController.requestWhatsappRecovery);
+
+/**
+ * Verificar código e resetar senha
+ * POST /api/auth/password-recovery/verify-code
+ * Público - sem autenticação
+ */
+routes.post('/api/auth/password-recovery/verify-code', PasswordRecoveryController.verifyCodeAndReset);
 
 // ==================== ROTAS DE TENANTS (ADMIN) ====================
 
@@ -233,6 +330,74 @@ routes.delete('/api/tenants/:id', authMiddleware, async (req, res) => {
   return tenantController.destroy(req, res);
 });
 
+/**
+ * GET /api/admin/tenants/:id/plans
+ * Listar planos de um tenant específico (Admin)
+ */
+routes.get('/api/admin/tenants/:id/plans', optionalTenantMiddleware(), authMiddleware, async (req, res) => {
+  try {
+    const Plan = require('./app/schemas/Plan');
+    const { id } = req.params;
+    const { active_only } = req.query;
+
+    const query = { tenant_id: id };
+    if (active_only === 'true') {
+      query.ativo = true;
+    }
+
+    const plans = await Plan.find(query).lean();
+
+    res.json({
+      success: true,
+      plans
+    });
+  } catch (error) {
+    console.error('Erro ao listar planos do tenant:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao listar planos'
+    });
+  }
+});
+
+/**
+ * GET /api/tenants/:id/portal/user
+ * Obter usuário do portal de um tenant (Admin)
+ */
+routes.get('/api/tenants/:id/portal/user', authMiddleware, async (req, res) => {
+  try {
+    const User = require('./app/schemas/User');
+    const { id } = req.params;
+
+    const portalUser = await User.findOne({
+      tenant_id: id,
+      roles: 'portal'
+    }).lean();
+
+    if (!portalUser) {
+      return res.json({
+        success: true,
+        user: null
+      });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        login: portalUser.login,
+        nome: portalUser.nome,
+        ativo: portalUser.ativo
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao buscar usuário portal:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao buscar usuário'
+    });
+  }
+});
+
 // ==================== ROTAS DE INSTALADOR ====================
 
 /**
@@ -254,54 +419,143 @@ routes.get('/api/installer/download/:tenantId', (req, res) =>
 // ==================== ROTAS DE PLANOS (ADMIN) ====================
 
 /**
+ * Listar todos os planos de todos os tenants (Admin)
+ * GET /api/admin/plans
+ */
+routes.get('/api/admin/plans', optionalTenantMiddleware(), authMiddleware, async (req, res) => {
+  try {
+    const Plan = require('./app/schemas/Plan');
+    const Tenant = require('./app/schemas/Tenant');
+    
+    // Buscar todos os planos da collection plans
+    const plans = await Plan.find({}).lean();
+    
+    // Buscar informações dos tenants para enriquecer os dados
+    const tenantIds = [...new Set(plans.map(p => p.tenant_id.toString()))];
+    const tenants = await Tenant.find({ _id: { $in: tenantIds } }).lean();
+    
+    // Criar um mapa de tenants para lookup rápido
+    const tenantMap = {};
+    tenants.forEach(t => {
+      tenantMap[t._id.toString()] = t;
+    });
+    
+    // Enriquecer planos com informações do tenant
+    const enrichedPlans = plans.map(plan => ({
+      ...plan,
+      tenant_nome: tenantMap[plan.tenant_id.toString()]?.provedor?.nome || 'Desconhecido'
+    }));
+    
+    // Ordenar por tenant e ordem
+    enrichedPlans.sort((a, b) => {
+      if (a.tenant_nome !== b.tenant_nome) {
+        return a.tenant_nome.localeCompare(b.tenant_nome);
+      }
+      return (a.ordem || 0) - (b.ordem || 0);
+    });
+    
+    return res.json({
+      success: true,
+      plans: enrichedPlans,
+      total: enrichedPlans.length
+    });
+  } catch (error) {
+    logger.error('Erro ao listar todos os planos:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao listar planos',
+      error: error.message
+    });
+  }
+});
+
+/**
  * Listar todos os planos
  * GET /api/plans
  * Query params: active_only
  */
-routes.get('/api/plans', tenantMiddleware, authMiddleware, async (req, res) => {
-  const planController = new PlanController();
-  return planController.list(req, res);
+routes.get('/api/plans', tenantMiddleware(), authMiddleware, async (req, res) => {
+  return PlanController.list(req, res);
 });
 
 /**
  * Buscar plano por ID
  * GET /api/plans/:planId
  */
-routes.get('/api/plans/:planId', tenantMiddleware, authMiddleware, async (req, res) => {
-  const planController = new PlanController();
-  return planController.show(req, res);
+routes.get('/api/plans/:planId', tenantMiddleware(), authMiddleware, async (req, res) => {
+  return PlanController.show(req, res);
 });
 
 /**
  * Criar novo plano
  * POST /api/plans
  */
-routes.post('/api/plans', tenantMiddleware, authMiddleware, async (req, res) => {
-  const planController = new PlanController();
-  return planController.create(req, res);
+routes.post('/api/plans', tenantMiddleware(), authMiddleware, async (req, res) => {
+  return PlanController.create(req, res);
 });
 
 /**
  * Atualizar plano
  * PUT /api/plans/:planId
  */
-routes.put('/api/plans/:planId', tenantMiddleware, authMiddleware, async (req, res) => {
-  const planController = new PlanController();
-  return planController.update(req, res);
+routes.put('/api/plans/:planId', tenantMiddleware(), authMiddleware, async (req, res) => {
+  return PlanController.update(req, res);
 });
 
 /**
  * Deletar plano
  * DELETE /api/plans/:planId
  */
-routes.delete('/api/plans/:planId', tenantMiddleware, authMiddleware, async (req, res) => {
-  const planController = new PlanController();
-  return planController.destroy(req, res);
+routes.delete('/api/plans/:planId', tenantMiddleware(), authMiddleware, async (req, res) => {
+  return PlanController.destroy(req, res);
 });
+
+// ==================== ROTAS DE INTEGRAÇÕES (ADMIN) ====================
+
+const EfiController = require('./app/controllers/EfiController');
+const EmailController = require('./app/controllers/EmailController');
+const SmsController = require('./app/controllers/SmsController');
+const ZApiController = require('./app/controllers/ZApiController');
+
+// Configurar multer para upload de certificados
+const multer = require('multer');
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+});
+
+/**
+ * EFI/Gerencianet
+ */
+routes.get('/api/integrations/efi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EfiController.getConfig(req, res));
+routes.post('/api/integrations/efi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EfiController.updateConfig(req, res));
+routes.post('/api/integrations/efi/test', optionalTenantMiddleware(), authMiddleware, (req, res) => EfiController.testConnection(req, res));
+routes.post('/api/integrations/efi/upload-certificate', optionalTenantMiddleware(), authMiddleware, upload.single('certificate'), (req, res) => EfiController.uploadCertificate(req, res));
+
+/**
+ * Email/SMTP
+ */
+routes.get('/api/integrations/email/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EmailController.getConfig(req, res));
+routes.post('/api/integrations/email/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EmailController.updateConfig(req, res));
+routes.post('/api/integrations/email/test', optionalTenantMiddleware(), authMiddleware, (req, res) => EmailController.test(req, res));
+
+/**
+ * SMS Gateway
+ */
+routes.get('/api/integrations/sms/config', optionalTenantMiddleware(), authMiddleware, (req, res) => SmsController.getConfig(req, res));
+routes.post('/api/integrations/sms/config', optionalTenantMiddleware(), authMiddleware, (req, res) => SmsController.updateConfig(req, res));
+routes.post('/api/integrations/sms/test', optionalTenantMiddleware(), authMiddleware, (req, res) => SmsController.testConnection(req, res));
+
+/**
+ * Z-API/WhatsApp
+ */
+routes.get('/api/integrations/zapi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => ZApiController.getConfig(req, res));
+routes.post('/api/integrations/zapi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => ZApiController.saveConfig(req, res));
+routes.post('/api/integrations/zapi/test', optionalTenantMiddleware(), authMiddleware, (req, res) => ZApiController.testConnection(req, res));
 
 // ==================== ROTAS AUTENTICADAS ====================
 
-routes.use(tenantMiddleware);
 routes.use(authMiddleware);
 
 /**
@@ -438,23 +692,53 @@ routes.get('/request/:id/:request_type', RequestController.showLegacy);
 routes.post('/request/:id', RequestController.update);
 
 /**
- * Estatísticas do dashboard
+ * Estatísticas do dashboard (portal)
  * GET /dashboard/stats
  */
 routes.get('/dashboard/stats', DashboardController.stats);
 
 /**
+ * Dashboard Admin - Estatísticas gerais
+ * GET /api/admin/dashboard/stats
+ */
+routes.get('/api/admin/dashboard/stats', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getAdminStats(req, res));
+
+/**
+ * Dashboard Admin - Atividades recentes
+ * GET /api/admin/dashboard/activities
+ */
+routes.get('/api/admin/dashboard/activities', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getActivities(req, res));
+
+/**
+ * Dashboard Admin - Alertas ativos
+ * GET /api/admin/dashboard/alerts
+ */
+routes.get('/api/admin/dashboard/alerts', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getAlerts(req, res));
+
+/**
+ * Dashboard Admin - Saúde do sistema
+ * GET /api/admin/dashboard/health
+ */
+routes.get('/api/admin/dashboard/health', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getSystemHealth(req, res));
+
+/**
+ * Dashboard Admin - Criar atividade
+ * POST /api/admin/dashboard/activity
+ */
+routes.post('/api/admin/dashboard/activity', optionalTenantMiddleware(), authMiddleware, DashboardController.createActivity);
+
+/**
  * Buscar cliente
  * GET /client/:id
  */
-routes.get('/client/:id', tenantMiddleware, ClientController.showById);
+routes.get('/client/:id', tenantMiddleware(), ClientController.showById);
 
 /**
  * Atualizar cliente por login (PUT)
  * PUT /client/:login
  * Aceita tanto login (CPF/CNPJ) quanto ID
  */
-routes.put('/client/:login', tenantMiddleware, async (req, res) => {
+routes.put('/client/:login', tenantMiddleware(), async (req, res) => {
   const { tenant } = req;
   const loginParam = String(req.params.login).trim();
   const updateData = req.body;
@@ -640,7 +924,7 @@ routes.put('/client/:login', tenantMiddleware, async (req, res) => {
  * POST /client/:login
  * Aceita tanto login (CPF/CNPJ) quanto ID
  */
-routes.post('/client/:login', tenantMiddleware, async (req, res) => {
+routes.post('/client/:login', tenantMiddleware(), async (req, res) => {
   const { tenant } = req;
   const loginParam = String(req.params.login).trim();
   const updateData = req.body;
@@ -844,7 +1128,7 @@ routes.post('/client/:login', tenantMiddleware, async (req, res) => {
  * POST /client/:id
  * Body: { action: "update_client", observacao: "sim"|"nao", date: ISO_DATE }
  */
-routes.post('/client/:id', tenantMiddleware, async (req, res) => {
+routes.post('/client/:id', tenantMiddleware(), async (req, res) => {
   const { tenant } = req;
   const clientId = req.params.id;
   const updateData = req.body;
@@ -1187,7 +1471,7 @@ routes.get('/invoices/:client_id', async (req, res) => {
  * POST /invoice/pay
  * Body: {invoice_id, titulo, uuid_lanc, data_pagamento, formapag, valor_pago, acrescimo, multa_mora, desconto, observacao, insnext, excluir_efipay}
  */
-routes.post('/invoice/pay', tenantMiddleware, InvoiceController.payInvoice);
+routes.post('/invoice/pay', tenantMiddleware(), InvoiceController.payInvoice);
 
 /**
  * Buscar conexões de um cliente por ID
