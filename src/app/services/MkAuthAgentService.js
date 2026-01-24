@@ -1376,6 +1376,49 @@ class MkAuthAgentService {
       params: {}
     }),
   };
+
+  /**
+   * Normaliza rem_obs para manter apenas a data (YYYY-MM-DD)
+   */
+  static normalizeRemObs(remObs) {
+    if (remObs === null || remObs === undefined) {
+      return null;
+    }
+
+    const raw = String(remObs).trim();
+    if (!raw) {
+      return null;
+    }
+
+    const firstPart = raw.split(/[ T]/)[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(firstPart)) {
+      return firstPart;
+    }
+
+    const parsed = new Date(raw);
+    if (!isNaN(parsed)) {
+      return parsed.toISOString().slice(0, 10);
+    }
+
+    return firstPart || null;
+  }
+
+  /**
+   * Garante rem_obs normalizado em resultados de clientes
+   */
+  static normalizeClienteResult(result = {}) {
+    if (!result || !result.data) {
+      return result;
+    }
+
+    return {
+      ...result,
+      data: result.data.map(client => ({
+        ...client,
+        rem_obs: this.normalizeRemObs(client.rem_obs)
+      }))
+    };
+  }
   
   /**
    * Executa uma query nomeada
@@ -1423,9 +1466,10 @@ class MkAuthAgentService {
     // Tenta como login primeiro (CPF/CNPJ)
     try {
       const loginResult = await this.execute(tenant, 'buscarClientePorLogin', identifierStr);
-      console.log(`[buscarClienteAuto] Tentou como login, encontrado: ${loginResult?.data?.length || 0} registros`);
-      if (loginResult.data && loginResult.data.length > 0) {
-        return loginResult;
+      const normalizedLoginResult = this.normalizeClienteResult(loginResult);
+      console.log(`[buscarClienteAuto] Tentou como login, encontrado: ${normalizedLoginResult?.data?.length || 0} registros`);
+      if (normalizedLoginResult.data && normalizedLoginResult.data.length > 0) {
+        return normalizedLoginResult;
       }
     } catch (err) {
       console.log(`[buscarClienteAuto] Erro ao tentar login: ${err.message}`);
@@ -1436,9 +1480,10 @@ class MkAuthAgentService {
       const numId = parseInt(identifierStr);
       console.log(`[buscarClienteAuto] Tentando como ID: ${numId}`);
       const idResult = await this.execute(tenant, 'buscarCliente', numId || identifierStr);
-      console.log(`[buscarClienteAuto] Tentou como ID, encontrado: ${idResult?.data?.length || 0} registros`);
-      if (idResult.data && idResult.data.length > 0) {
-        return idResult;
+      const normalizedIdResult = this.normalizeClienteResult(idResult);
+      console.log(`[buscarClienteAuto] Tentou como ID, encontrado: ${normalizedIdResult?.data?.length || 0} registros`);
+      if (normalizedIdResult.data && normalizedIdResult.data.length > 0) {
+        return normalizedIdResult;
       }
     } catch (err) {
       console.log(`[buscarClienteAuto] Erro ao tentar ID: ${err.message}`);

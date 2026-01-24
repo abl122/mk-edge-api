@@ -410,14 +410,23 @@ class ClientController {
         
         // Se tem data, atualiza rem_obs
         if (updateData.rem_obs !== undefined) {
-          fields.push('rem_obs = :rem_obs');
-          params.rem_obs = updateData.rem_obs;
+          const normalized = MkAuthAgentService.normalizeRemObs(updateData.rem_obs);
+          if (normalized) {
+            fields.push('rem_obs = :rem_obs');
+            params.rem_obs = normalized;
+          } else {
+            fields.push('rem_obs = NULL');
+          }
         } else if (updateData.date !== undefined) {
           // Tenta parsear date se fornecido
           try {
-            const parsedDate = new Date(updateData.date).toISOString().slice(0, 19).replace('T', ' ');
-            fields.push('rem_obs = :rem_obs');
-            params.rem_obs = parsedDate;
+            const parsedDate = MkAuthAgentService.normalizeRemObs(updateData.date);
+            if (parsedDate) {
+              fields.push('rem_obs = :rem_obs');
+              params.rem_obs = parsedDate;
+            } else {
+              fields.push('rem_obs = NULL');
+            }
           } catch (err) {
             logger.warn('[ClientController.update] Erro ao parsear data:', err);
           }

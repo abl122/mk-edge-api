@@ -787,11 +787,18 @@ routes.put('/client/:login', tenantMiddleware(), async (req, res) => {
       fields.push('observacao = ?');
       params.push(observacao);
       
-      // Processa data da observação
+      // Processa data da observação (apenas data, sem hora)
       let dataFormatada = rem_obs;
+      if (dataFormatada) {
+        try {
+          dataFormatada = new Date(dataFormatada).toISOString().slice(0, 10);
+        } catch (err) {
+          logger.warn('[Client.update] Erro ao normalizar rem_obs:', err);
+        }
+      }
       if (!dataFormatada && date) {
         try {
-          dataFormatada = new Date(date).toISOString().slice(0, 19).replace('T', ' ');
+          dataFormatada = new Date(date).toISOString().slice(0, 10);
         } catch (err) {
           logger.warn('[Client.update] Erro ao parsear data:', err);
         }
@@ -973,11 +980,18 @@ routes.post('/client/:login', tenantMiddleware(), async (req, res) => {
       fields.push('observacao = ?');
       params.push(observacao);
       
-      // Processa data da observação
+      // Processa data da observação (apenas data, sem hora)
       let dataFormatada = rem_obs;
+      if (dataFormatada) {
+        try {
+          dataFormatada = new Date(dataFormatada).toISOString().slice(0, 10);
+        } catch (err) {
+          logger.warn('[Client.update] Erro ao normalizar rem_obs:', err);
+        }
+      }
       if (!dataFormatada && date) {
         try {
-          dataFormatada = new Date(date).toISOString().slice(0, 19).replace('T', ' ');
+          dataFormatada = new Date(date).toISOString().slice(0, 10);
         } catch (err) {
           logger.warn('[Client.update] Erro ao parsear data:', err);
         }
@@ -1173,11 +1187,18 @@ routes.post('/client/:id', tenantMiddleware(), async (req, res) => {
       fields.push('observacao = ?');
       params.observacao = observacao;
       
-      // Processa data da observação
+      // Processa data da observação (apenas data, sem hora)
       let dataFormatada = rem_obs;
+      if (dataFormatada) {
+        try {
+          dataFormatada = new Date(dataFormatada).toISOString().slice(0, 10);
+        } catch (err) {
+          logger.warn('[Client.update] Erro ao normalizar rem_obs:', err);
+        }
+      }
       if (!dataFormatada && date) {
         try {
-          dataFormatada = new Date(date).toISOString().slice(0, 19).replace('T', ' ');
+          dataFormatada = new Date(date).toISOString().slice(0, 10);
         } catch (err) {
           logger.warn('[Client.update] Erro ao parsear data:', err);
         }
@@ -1359,6 +1380,8 @@ routes.get('/invoices/:client_id', async (req, res) => {
       });
     }
     
+    const normalizedRemObs = MkAuthAgentService.normalizeRemObs(client.rem_obs);
+
     // ===== FATURAS PENDENTES (ABERTAS + VENCIDAS) =====
     const abertasQuery = MkAuthAgentService.queries.titulosAbertos(client.login);
     const abertasResult = await MkAuthAgentService.sendToAgent(req.tenant, abertasQuery.sql, abertasQuery.params);
@@ -1446,7 +1469,7 @@ routes.get('/invoices/:client_id', async (req, res) => {
     
     return res.json({
       observacao: client.observacao,
-      rem_obs: client.rem_obs,
+      rem_obs: normalizedRemObs,
       invoices: {
         pending_invoices: pendingInvoices,
         paid_invoices: paidInvoices
