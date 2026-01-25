@@ -13,18 +13,17 @@ COPY --chown=nodejs:nodejs package*.json ./
 # Instalar dependências
 RUN npm ci
 
-# Copiar código fonte (já inclui src/scripts/)
+# Copiar código fonte
 COPY --chown=nodejs:nodejs . .
 
-# Copiar docker-entrypoint script
-COPY --chown=nodejs:nodejs docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Garantir permissão do entrypoint
+RUN chmod +x docker-entrypoint.sh
 
 EXPOSE 3333
 
 USER nodejs
 
-ENTRYPOINT ["dumb-init", "--", "docker-entrypoint.sh"]
+ENTRYPOINT ["dumb-init", "--", "./docker-entrypoint.sh"]
 CMD ["node", "src/server.js"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
