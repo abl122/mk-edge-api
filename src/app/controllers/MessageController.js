@@ -115,6 +115,8 @@ class MessageController {
         chamado
       });
       
+      console.log('📨 Retornando mensagens:', JSON.stringify(mensagens, null, 2));
+      
       return res.json(mensagens);
       
     } catch (error) {
