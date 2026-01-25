@@ -562,15 +562,17 @@ routes.use(authMiddleware);
 
 /**
  * Listar chamados
- * POST /requests
+ * POST /requests OU POST /api/requests
  */
 routes.post('/requests', RequestController.index);
+routes.post('/api/requests', RequestController.index);
 
 /**
  * Chamados em atraso
- * GET /requests/overdue
+ * GET /requests/overdue OU GET /api/requests/overdue
  */
 routes.get('/requests/overdue', RequestController.overdue);
+routes.get('/api/requests/overdue', RequestController.overdue);
 
 /**
  * Carrega dados do formulário de novo chamado (por login)
@@ -695,9 +697,10 @@ routes.post('/request/:id', RequestController.update);
 
 /**
  * Estatísticas do dashboard (portal)
- * GET /dashboard/stats
+ * GET /dashboard/stats OU GET /api/dashboard/stats
  */
 routes.get('/dashboard/stats', DashboardController.stats);
+routes.get('/api/dashboard/stats', DashboardController.stats);
 
 /**
  * Dashboard Admin - Estatísticas gerais
