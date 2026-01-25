@@ -132,10 +132,10 @@ app.get('/quick-start.html', (req, res) => {
 // Servir arquivos estáticos da pasta public (CSS, JS, imagens)
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Rotas da API
-app.use(routes);
+// Rotas da API com prefixo /api
+app.use('/api', routes);
 
-// Health check
+// Health check (sem prefixo para Nginx)
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
