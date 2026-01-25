@@ -202,10 +202,12 @@ routes.get('/agent/test', tenantMiddleware(), async (req, res) => {
 // ==================== SESSÕES ====================
 
 /**
- * Login do cliente
- * POST /sessions
+ * Login do cliente (App Mobile)
+ * POST /sessions OU POST /api/sessions
+ * Body: { login, senha }
  */
 routes.post('/sessions', tenantMiddleware(), SessionController.store);
+routes.post('/api/sessions', tenantMiddleware(), SessionController.store);
 
 // ==================== ROTAS DE AUTENTICAÇÃO ====================
 
