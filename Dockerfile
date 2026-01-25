@@ -13,11 +13,8 @@ COPY --chown=nodejs:nodejs package*.json ./
 # Instalar dependências
 RUN npm ci
 
-# Copiar código fonte
+# Copiar código fonte (já inclui src/scripts/)
 COPY --chown=nodejs:nodejs . .
-
-# Copiar scripts de inicialização (se existir)
-COPY --chown=nodejs:nodejs src/scripts/ /app/src/scripts/ 2>/dev/null || true
 
 # Copiar docker-entrypoint script
 COPY --chown=nodejs:nodejs docker-entrypoint.sh /usr/local/bin/
