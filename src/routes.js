@@ -257,35 +257,35 @@ const PasswordRecoveryController = require('./app/controllers/PasswordRecoveryCo
  * GET /api/auth/password-recovery/contacts?identifier=admin
  * Público - sem autenticação
  */
-routes.get('/api/auth/password-recovery/contacts', PasswordRecoveryController.getContacts);
+routes.get('/auth/password-recovery/contacts', PasswordRecoveryController.getContacts);
 
 /**
  * Solicitar código via SMS
  * POST /api/auth/password-recovery/request-sms
  * Público - sem autenticação
  */
-routes.post('/api/auth/password-recovery/request-sms', PasswordRecoveryController.requestSmsRecovery);
+routes.post('/auth/password-recovery/request-sms', PasswordRecoveryController.requestSmsRecovery);
 
 /**
  * Solicitar código via Email
  * POST /api/auth/password-recovery/request-email
  * Público - sem autenticação
  */
-routes.post('/api/auth/password-recovery/request-email', PasswordRecoveryController.requestEmailRecovery);
+routes.post('/auth/password-recovery/request-email', PasswordRecoveryController.requestEmailRecovery);
 
 /**
  * Solicitar código via WhatsApp
  * POST /api/auth/password-recovery/request-whatsapp
  * Público - sem autenticação
  */
-routes.post('/api/auth/password-recovery/request-whatsapp', PasswordRecoveryController.requestWhatsappRecovery);
+routes.post('/auth/password-recovery/request-whatsapp', PasswordRecoveryController.requestWhatsappRecovery);
 
 /**
  * Verificar código e resetar senha
  * POST /api/auth/password-recovery/verify-code
  * Público - sem autenticação
  */
-routes.post('/api/auth/password-recovery/verify-code', PasswordRecoveryController.verifyCodeAndReset);
+routes.post('/auth/password-recovery/verify-code', PasswordRecoveryController.verifyCodeAndReset);
 
 // ==================== ROTAS DE TENANTS (ADMIN) ====================
 
