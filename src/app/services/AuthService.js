@@ -18,36 +18,68 @@ class AuthService {
    * 
    * @param {string} login - Login do usuário
    * @param {string} senha - Senha do usuário
-   * @param {string} tenantId - ID do tenant
+   * @param {string} tenantId - ID do tenant (opcional para admin, obrigatório para portal)
    * @returns {Promise<Object>} { user, token, refreshToken }
    */
-  static async login(login, senha, tenantId) {
+  static async login(login, senha, tenantId = null) {
     try {
-      // Valida tenant
-      const tenant = await TenantService.findById(tenantId);
-      if (!tenant) {
-        logger.warn('Tenant não encontrado no login', { tenant_id: tenantId });
-        throw new Error('Tenant não encontrado');
-      }
+      let user = null;
+      let tenant = null;
 
-      // Se tenant não está ativo, nega login
-      if (!tenant.assinaturaAtiva?.()) {
-        logger.warn('Tentativa de login em tenant inativo', {
-          tenant_id: tenantId,
-          login
-        });
-        throw new Error('Tenant inativo');
-      }
+      // Se tenantId foi fornecido, é login de usuário portal
+      if (tenantId) {
+        // Valida tenant
+        tenant = await TenantService.findById(tenantId);
+        if (!tenant) {
+          logger.warn('Tenant não encontrado no login', { tenant_id: tenantId });
+          throw new Error('Tenant não encontrado');
+        }
 
-      // Busca usuário no tenant específico
-      const user = await User.findByLoginAndTenant(login, tenantId);
+        // Se tenant não está ativo, nega login
+        if (!tenant.assinaturaAtiva?.()) {
+          logger.warn('Tentativa de login em tenant inativo', {
+            tenant_id: tenantId,
+            login
+          });
+          throw new Error('Provedor com assinatura inativa');
+        }
 
-      if (!user) {
-        logger.warn('Usuário não encontrado', {
-          login,
-          tenant_id: tenantId
-        });
-        throw new Error('Credenciais inválidas');
+        // Busca usuário no tenant específico
+        user = await User.findByLogin(login, tenantId);
+
+        if (!user) {
+          logger.warn('Usuário portal não encontrado', {
+            login,
+            tenant_id: tenantId
+          });
+          throw new Error('Credenciais inválidas');
+        }
+
+        // Valida que é usuário portal
+        if (!user.roles.includes('portal') && !user.roles.includes('gerente') && !user.roles.includes('tecnico')) {
+          logger.warn('Usuário sem role portal tentou acessar', {
+            login,
+            roles: user.roles
+          });
+          throw new Error('Credenciais inválidas');
+        }
+      } else {
+        // Sem tenantId = login de admin global
+        user = await User.findByLogin(login, null);
+
+        if (!user) {
+          logger.warn('Usuário admin não encontrado', { login });
+          throw new Error('Credenciais inválidas');
+        }
+
+        // Valida que é admin
+        if (!user.roles.includes('admin')) {
+          logger.warn('Usuário não-admin tentou login sem tenant', {
+            login,
+            roles: user.roles
+          });
+          throw new Error('Acesso negado');
+        }
       }
 
       // Verifica se usuário está ativo
@@ -66,7 +98,7 @@ class AuthService {
           tenant_id: tenantId,
           motivo: user.motivo_bloqueio
         });
-        throw new Error('Usuário bloqueado');
+        throw new Error(user.motivo_bloqueio || 'Usuário bloqueado');
       }
 
       // Valida senha
@@ -109,19 +141,26 @@ class AuthService {
       logger.info('Usuário logado com sucesso', {
         login,
         tenant_id: tenantId,
-        tenant_nome: tenant.provedor?.nome
+        role: user.roles[0],
+        tipo: tenantId ? 'portal' : 'admin'
       });
 
-      return {
+      const response = {
         user: user.toPublic(),
         token,
-        refreshToken,
-        tenant: {
+        refreshToken
+      };
+
+      // Adiciona informações do tenant se for login portal
+      if (tenant) {
+        response.tenant = {
           _id: tenant._id,
           nome: tenant.provedor?.nome,
           agente_ativo: tenant.agente?.ativo
-        }
-      };
+        };
+      }
+
+      return response;
 
     } catch (error) {
       logger.error('Erro no login', {
@@ -137,38 +176,43 @@ class AuthService {
    * Gera tokens JWT e Refresh Token
    * 
    * @param {Object} user - Documento de usuário
-   * @param {Object} tenant - Documento de tenant
+   * @param {Object} tenant - Documento de tenant (null para admin)
    * @returns {Object} { token, refreshToken }
    */
-  static gerarTokens(user, tenant) {
+  static gerarTokens(user, tenant = null) {
     const jwtSecret = process.env.JWT_SECRET;
     const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
 
+    const payload = {
+      id: user._id.toString(),
+      login: user.login,
+      email: user.email,
+      nome: user.nome,
+      roles: user.roles,
+      permissoes: user.permissoes
+    };
+
+    // Adiciona tenant_id apenas se existir (usuários portal)
+    if (tenant && tenant._id) {
+      payload.tenant_id = tenant._id.toString();
+    } else if (user.tenant_id) {
+      payload.tenant_id = user.tenant_id.toString();
+    }
+
     // Token de acesso
-    const token = jwt.sign(
-      {
-        id: user._id.toString(),
-        login: user.login,
-        email: user.email,
-        nome: user.nome,
-        tenant_id: user.tenant_id.toString(),
-        roles: user.roles,
-        permissoes: user.permissoes
-      },
-      jwtSecret,
-      { expiresIn }
-    );
+    const token = jwt.sign(payload, jwtSecret, { expiresIn });
 
     // Refresh token (válido por 30 dias)
-    const refreshToken = jwt.sign(
-      {
-        id: user._id.toString(),
-        tenant_id: user.tenant_id.toString(),
-        type: 'refresh'
-      },
-      jwtSecret,
-      { expiresIn: '30d' }
-    );
+    const refreshPayload = {
+      id: user._id.toString(),
+      type: 'refresh'
+    };
+    
+    if (payload.tenant_id) {
+      refreshPayload.tenant_id = payload.tenant_id;
+    }
+
+    const refreshToken = jwt.sign(refreshPayload, jwtSecret, { expiresIn: '30d' });
 
     return { token, refreshToken };
   }
@@ -207,17 +251,32 @@ class AuthService {
         throw new Error('Tipo de token inválido');
       }
 
-      // Busca usuário e tenant
-      const user = await User.findById(payload.id).populate('tenant_id');
-      const tenant = user.tenant_id;
-
-      if (!user || !tenant) {
-        throw new Error('Usuário ou tenant não encontrado');
+      // Busca usuário
+      const user = await User.findById(payload.id);
+      
+      if (!user) {
+        throw new Error('Usuário não encontrado');
       }
 
-      // Verifica se estão ativos
-      if (!user.ativo || !tenant.assinaturaAtiva?.()) {
-        throw new Error('Usuário ou tenant não está ativo');
+      let tenant = null;
+      
+      // Se usuário tem tenant_id, valida o tenant
+      if (user.tenant_id) {
+        tenant = await TenantService.findById(user.tenant_id);
+        
+        if (!tenant) {
+          throw new Error('Tenant não encontrado');
+        }
+        
+        // Verifica se tenant está ativo
+        if (!tenant.assinaturaAtiva?.()) {
+          throw new Error('Provedor com assinatura inativa');
+        }
+      }
+
+      // Verifica se usuário está ativo
+      if (!user.ativo) {
+        throw new Error('Usuário não está ativo');
       }
 
       // Gera novos tokens
@@ -225,7 +284,7 @@ class AuthService {
 
       logger.info('Token renovado com sucesso', {
         user_id: user._id,
-        tenant_id: tenant._id
+        tenant_id: user.tenant_id
       });
 
       return {

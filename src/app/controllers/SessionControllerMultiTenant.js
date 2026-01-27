@@ -18,7 +18,7 @@ class SessionController {
    * {
    *   "login": "usuario123",
    *   "senha": "senha123",
-   *   "tenant_id": "63dd998b885eb427c8c51958" // opcional se em JWT
+   *   "tenant_id": "63dd998b885eb427c8c51958" // Obrigatório para portal, ausente para admin
    * }
    */
   async store(req, res) {
@@ -38,25 +38,16 @@ class SessionController {
       }
 
       // Se tenant_id não foi fornecido, tenta extrair de req.tenant
-      const tenantId = tenant_id || req.tenant?._id;
+      // Para login admin, tenant_id será undefined
+      const tenantId = tenant_id || req.tenant?._id || null;
 
-      if (!tenantId) {
-        logger.warn('Tentativa de login sem tenant', {
-          login,
-          ip: req.ip
-        });
-
-        return res.status(400).json({
-          error: 'tenant_id é obrigatório'
-        });
-      }
-
-      // Realiza login
+      // Realiza login (tenantId null = admin, tenantId definido = portal)
       const resultado = await AuthService.login(login, senha, tenantId);
 
       logger.info('Login bem-sucedido', {
         login,
         tenant_id: tenantId,
+        tipo: tenantId ? 'portal' : 'admin',
         tenant_nome: resultado.tenant?.nome
       });
 
@@ -71,12 +62,13 @@ class SessionController {
     } catch (error) {
       logger.error('Erro ao fazer login', {
         error: error.message,
-        login: req.body?.login
+        login: req.body?.login,
+        tenant_id: req.body?.tenant_id
       });
 
       // Retorna mensagem genérica para segurança
       return res.status(401).json({
-        error: 'Credenciais inválidas ou tenant não encontrado'
+        error: error.message || 'Credenciais inválidas'
       });
     }
   }
