@@ -120,14 +120,17 @@ routes.get('/public/plans', async (req, res) => {
     }
 
     const plans = await Plan.find(query)
-      .select('_id nome descricao valor_mensal recursos ativo ordem')
-      .sort({ ordem: 1 })
+      .select('_id nome slug descricao valor_mensal periodo recursos destaque cor dias_trial limite_clientes recorrente ativo ordem')
+      .sort({ destaque: -1, ordem: 1 })
       .lean();
 
     return res.json({
       success: true,
       plans,
-      total: plans.length
+      total: plans.length,
+      tenant_name: 'MK-Edge',
+      tenant_color_primary: '#667eea',
+      tenant_color_secondary: '#764ba2'
     });
   } catch (error) {
     console.error('❌ Erro ao listar planos públicos:', error);
