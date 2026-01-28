@@ -2,7 +2,46 @@
 
 Este diretório armazena os certificados P12 para integração com a API Pix da EFI (Gerencianet).
 
-## Estrutura
+## Para Testes de Integração
+
+### Como obter o certificado de homologação:
+
+1. Acesse: https://gerencianet.com.br/
+2. Faça login na conta de homologação
+3. Vá em: **API** → **Meus Aplicativos** → **Certificados**
+4. Baixe o certificado `.p12` de homologação
+5. Coloque o arquivo aqui como: `efi-homologacao.p12`
+
+### Como obter as credenciais:
+
+1. No painel da Gerencianet/EFI
+2. Vá em: **API** → **Meus Aplicativos**
+3. Crie um aplicativo ou use existente
+4. Copie o **Client_Id** e **Client_Secret**
+5. Cole no arquivo `.env`:
+   ```
+   EFI_CLIENT_ID=seu_client_id
+   EFI_CLIENT_SECRET=seu_client_secret
+   ```
+
+### Chave PIX:
+
+1. Cadastre uma chave PIX no painel EFI
+2. Pode ser: email, telefone, CNPJ ou chave aleatória
+3. Cole no `.env`:
+   ```
+   EFI_PIX_KEY=sua_chave@email.com
+   ```
+
+### Executar teste:
+
+```bash
+node test-efi-integration.js
+```
+
+## Para Produção
+
+### Estrutura
 
 Os certificados são salvos automaticamente quando enviados via API:
 - `{tenant_id}_efi_homologacao.p12` - Certificado de Homologação

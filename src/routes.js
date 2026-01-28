@@ -1,6 +1,7 @@
 /**
  * Routes - Sistema de Rotas
  * Nova API MK-Edge
+ * Última atualização: 2026-01-27 17:30 - Correção de prefixos /api/ duplicados
  */
 
 const express = require('express');
@@ -173,8 +174,8 @@ const apiInfo = {
   agentUrl: process.env.AGENT_DEFAULT_URL || 'não configurado'
 };
 
-routes.get('/api/info', (req, res) => res.json(apiInfo));
-routes.get('/api/status', (req, res) => res.json(apiInfo));
+routes.get('/info', (req, res) => res.json(apiInfo));
+routes.get('/status', (req, res) => res.json(apiInfo));
 
 /**
  * Ping do agente MK-Auth
@@ -206,47 +207,46 @@ routes.get('/agent/test', tenantMiddleware(), async (req, res) => {
 
 /**
  * Login do cliente (App Mobile)
- * POST /sessions OU POST /api/sessions
+ * POST /sessions (montado como /api/sessions no app.js)
  * Body: { login, senha }
  */
 routes.post('/sessions', tenantMiddleware(), SessionController.store);
-routes.post('/api/sessions', tenantMiddleware(), SessionController.store);
 
 // ==================== ROTAS DE AUTENTICAÇÃO ====================
 
 /**
  * Login Admin
- * POST /api/auth/admin/login
+ * POST /auth/admin/login (montado como /api/auth/admin/login no app.js)
  * Body: { username, password }
  */
-routes.post('/api/auth/admin/login', AuthController.loginAdmin);
+routes.post('/auth/admin/login', AuthController.loginAdmin);
 
 /**
  * Login Portal (Tenant)
- * POST /api/auth/portal/login
+ * POST /auth/portal/login (montado como /api/auth/portal/login no app.js)
  * Body: { cnpj, password }
  */
-routes.post('/api/auth/portal/login', AuthController.loginPortal);
+routes.post('/auth/portal/login', AuthController.loginPortal);
 
 /**
  * Logout
- * POST /api/auth/logout
+ * POST /auth/logout (montado como /api/auth/logout no app.js)
  */
-routes.post('/api/auth/logout', AuthController.logout);
+routes.post('/auth/logout', AuthController.logout);
 
 /**
  * Verificar Token
- * GET /api/auth/verify
+ * GET /auth/verify (montado como /api/auth/verify no app.js)
  * Headers: Authorization: Bearer {token}
  */
-routes.get('/api/auth/verify', AuthController.verify);
+routes.get('/auth/verify', AuthController.verify);
 
 /**
  * Obter dados do usuário logado
- * GET /api/me
+ * GET /me (montado como /api/me no app.js)
  * Headers: Authorization: Bearer {token}
  */
-routes.get('/api/me', AuthController.me);
+routes.get('/me', AuthController.me);
 
 // ==================== ROTAS DE RECUPERAÇÃO DE SENHA ====================
 
@@ -289,12 +289,14 @@ routes.post('/auth/password-recovery/verify-code', PasswordRecoveryController.ve
 
 // ==================== ROTAS DE TENANTS (ADMIN) ====================
 
+console.log('🔧 Registrando rotas de tenants...');
+
 /**
  * Listar todos os tenants
  * GET /api/tenants
  * Query params: page, limit, ativo, nome
  */
-routes.get('/api/tenants', authMiddleware, async (req, res) => {
+routes.get('/tenants', authMiddleware, async (req, res) => {
   const tenantController = new TenantController();
   return tenantController.index(req, res);
 });
@@ -303,7 +305,7 @@ routes.get('/api/tenants', authMiddleware, async (req, res) => {
  * Buscar tenant por ID
  * GET /api/tenants/:id
  */
-routes.get('/api/tenants/:id', authMiddleware, async (req, res) => {
+routes.get('/tenants/:id', authMiddleware, async (req, res) => {
   const tenantController = new TenantController();
   return tenantController.show(req, res);
 });
@@ -312,7 +314,7 @@ routes.get('/api/tenants/:id', authMiddleware, async (req, res) => {
  * Criar novo tenant
  * POST /api/tenants
  */
-routes.post('/api/tenants', authMiddleware, async (req, res) => {
+routes.post('/tenants', authMiddleware, async (req, res) => {
   const tenantController = new TenantController();
   return tenantController.store(req, res);
 });
@@ -321,7 +323,7 @@ routes.post('/api/tenants', authMiddleware, async (req, res) => {
  * Atualizar tenant
  * PUT /api/tenants/:id
  */
-routes.put('/api/tenants/:id', authMiddleware, async (req, res) => {
+routes.put('/tenants/:id', authMiddleware, async (req, res) => {
   const tenantController = new TenantController();
   return tenantController.update(req, res);
 });
@@ -330,7 +332,7 @@ routes.put('/api/tenants/:id', authMiddleware, async (req, res) => {
  * Deletar tenant
  * DELETE /api/tenants/:id
  */
-routes.delete('/api/tenants/:id', authMiddleware, async (req, res) => {
+routes.delete('/tenants/:id', authMiddleware, async (req, res) => {
   const tenantController = new TenantController();
   return tenantController.destroy(req, res);
 });
@@ -339,7 +341,7 @@ routes.delete('/api/tenants/:id', authMiddleware, async (req, res) => {
  * GET /api/admin/tenants/:id/plans
  * Listar planos de um tenant específico (Admin)
  */
-routes.get('/api/admin/tenants/:id/plans', optionalTenantMiddleware(), authMiddleware, async (req, res) => {
+routes.get('/admin/tenants/:id/plans', optionalTenantMiddleware(), authMiddleware, async (req, res) => {
   try {
     const Plan = require('./app/schemas/Plan');
     const { id } = req.params;
@@ -369,7 +371,7 @@ routes.get('/api/admin/tenants/:id/plans', optionalTenantMiddleware(), authMiddl
  * GET /api/tenants/:id/portal/user
  * Obter usuário do portal de um tenant (Admin)
  */
-routes.get('/api/tenants/:id/portal/user', authMiddleware, async (req, res) => {
+routes.get('/tenants/:id/portal/user', authMiddleware, async (req, res) => {
   try {
     const User = require('./app/schemas/User');
     const { id } = req.params;
@@ -409,7 +411,7 @@ routes.get('/api/tenants/:id/portal/user', authMiddleware, async (req, res) => {
  * GET /api/installer/script/:tenantId
  * Retorna script de instalação personalizado
  */
-routes.get('/api/installer/script/:tenantId', (req, res) => 
+routes.get('/installer/script/:tenantId', (req, res) => 
   InstallerController.getPersonalizedScript(req, res)
 );
 
@@ -417,17 +419,19 @@ routes.get('/api/installer/script/:tenantId', (req, res) =>
  * GET /api/installer/download/:tenantId
  * Faz download do instalador personalizado
  */
-routes.get('/api/installer/download/:tenantId', (req, res) => 
+routes.get('/installer/download/:tenantId', (req, res) => 
   InstallerController.downloadInstaller(req, res)
 );
 
 // ==================== ROTAS DE PLANOS (ADMIN) ====================
 
+console.log('🔧 Registrando rotas de planos...');
+
 /**
  * Listar todos os planos de todos os tenants (Admin)
  * GET /api/admin/plans
  */
-routes.get('/api/admin/plans', optionalTenantMiddleware(), authMiddleware, async (req, res) => {
+routes.get('/admin/plans', optionalTenantMiddleware(), authMiddleware, async (req, res) => {
   try {
     const Plan = require('./app/schemas/Plan');
     const Tenant = require('./app/schemas/Tenant');
@@ -478,8 +482,9 @@ routes.get('/api/admin/plans', optionalTenantMiddleware(), authMiddleware, async
  * Listar todos os planos
  * GET /api/plans
  * Query params: active_only
+ * Tenant é opcional - se fornecido, filtra por tenant
  */
-routes.get('/api/plans', tenantMiddleware(), authMiddleware, async (req, res) => {
+routes.get('/plans', optionalTenantMiddleware(), authMiddleware, async (req, res) => {
   return PlanController.list(req, res);
 });
 
@@ -487,7 +492,7 @@ routes.get('/api/plans', tenantMiddleware(), authMiddleware, async (req, res) =>
  * Buscar plano por ID
  * GET /api/plans/:planId
  */
-routes.get('/api/plans/:planId', tenantMiddleware(), authMiddleware, async (req, res) => {
+routes.get('/plans/:planId', tenantMiddleware(), authMiddleware, async (req, res) => {
   return PlanController.show(req, res);
 });
 
@@ -495,7 +500,7 @@ routes.get('/api/plans/:planId', tenantMiddleware(), authMiddleware, async (req,
  * Criar novo plano
  * POST /api/plans
  */
-routes.post('/api/plans', tenantMiddleware(), authMiddleware, async (req, res) => {
+routes.post('/plans', tenantMiddleware(), authMiddleware, async (req, res) => {
   return PlanController.create(req, res);
 });
 
@@ -503,7 +508,7 @@ routes.post('/api/plans', tenantMiddleware(), authMiddleware, async (req, res) =
  * Atualizar plano
  * PUT /api/plans/:planId
  */
-routes.put('/api/plans/:planId', tenantMiddleware(), authMiddleware, async (req, res) => {
+routes.put('/plans/:planId', tenantMiddleware(), authMiddleware, async (req, res) => {
   return PlanController.update(req, res);
 });
 
@@ -511,8 +516,101 @@ routes.put('/api/plans/:planId', tenantMiddleware(), authMiddleware, async (req,
  * Deletar plano
  * DELETE /api/plans/:planId
  */
-routes.delete('/api/plans/:planId', tenantMiddleware(), authMiddleware, async (req, res) => {
-  return PlanController.destroy(req, res);
+routes.delete('/plans/:planId', tenantMiddleware(), authMiddleware, async (req, res) => {
+  return PlanController.delete(req, res);
+});
+
+// ==================== ROTAS DE FATURAS ====================
+
+const InvoiceService = require('./app/services/InvoiceService');
+
+/**
+ * Listar faturas de um tenant
+ * GET /api/invoices
+ */
+routes.get('/invoices', tenantMiddleware(), authMiddleware, async (req, res) => {
+  try {
+    const { tenant } = req;
+    const { status, data_inicio, data_fim } = req.query;
+
+    const filtros = {};
+    if (status) filtros.status = status;
+    if (data_inicio) filtros.data_inicio = data_inicio;
+    if (data_fim) filtros.data_fim = data_fim;
+
+    const invoices = await InvoiceService.listarFaturas(tenant._id, filtros);
+
+    res.json({
+      success: true,
+      invoices
+    });
+  } catch (error) {
+    console.error('Erro ao listar faturas:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao listar faturas'
+    });
+  }
+});
+
+/**
+ * Registrar pagamento manual de fatura
+ * POST /api/invoices/:id/manual-payment
+ */
+routes.post('/invoices/:id/manual-payment', tenantMiddleware(), authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data_pagamento, valor_pago, metodo, observacoes } = req.body;
+    const { user } = req;
+
+    const invoice = await InvoiceService.registrarPagamentoManual(
+      id,
+      { data_pagamento, valor_pago, metodo, observacoes },
+      user._id
+    );
+
+    res.json({
+      success: true,
+      message: 'Pagamento registrado com sucesso',
+      invoice
+    });
+  } catch (error) {
+    console.error('Erro ao registrar pagamento manual:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Erro ao registrar pagamento'
+    });
+  }
+});
+
+/**
+ * Webhook EFI - Receber notificação de pagamento
+ * POST /api/webhooks/efi/payment
+ */
+routes.post('/webhooks/efi/payment', async (req, res) => {
+  try {
+    const { pix } = req.body;
+
+    if (!pix || !pix.txid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dados inválidos'
+      });
+    }
+
+    await InvoiceService.registrarPagamentoEFI(pix.txid, pix);
+
+    res.json({
+      success: true,
+      message: 'Pagamento processado'
+    });
+  } catch (error) {
+    console.error('Erro ao processar webhook EFI:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
 });
 
 // ==================== ROTAS DE INTEGRAÇÕES (ADMIN) ====================
@@ -530,52 +628,54 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB
 });
 
+console.log('🔧 Registrando rotas de integrações (EFI, Email, SMS, ZAPI)...');
+
 /**
  * EFI/Gerencianet
  */
-routes.get('/api/integrations/efi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EfiController.getConfig(req, res));
-routes.post('/api/integrations/efi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EfiController.updateConfig(req, res));
-routes.post('/api/integrations/efi/test', optionalTenantMiddleware(), authMiddleware, (req, res) => EfiController.testConnection(req, res));
-routes.post('/api/integrations/efi/upload-certificate', optionalTenantMiddleware(), authMiddleware, upload.single('certificate'), (req, res) => EfiController.uploadCertificate(req, res));
+routes.get('/integrations/efi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EfiController.getConfig(req, res));
+routes.post('/integrations/efi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EfiController.updateConfig(req, res));
+routes.post('/integrations/efi/test', optionalTenantMiddleware(), authMiddleware, (req, res) => EfiController.testConnection(req, res));
+routes.post('/integrations/efi/upload-certificate', optionalTenantMiddleware(), authMiddleware, upload.single('certificate'), (req, res) => EfiController.uploadCertificate(req, res));
 
 /**
  * Email/SMTP
  */
-routes.get('/api/integrations/email/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EmailController.getConfig(req, res));
-routes.post('/api/integrations/email/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EmailController.updateConfig(req, res));
-routes.post('/api/integrations/email/test', optionalTenantMiddleware(), authMiddleware, (req, res) => EmailController.test(req, res));
+routes.get('/integrations/email/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EmailController.getConfig(req, res));
+routes.post('/integrations/email/config', optionalTenantMiddleware(), authMiddleware, (req, res) => EmailController.updateConfig(req, res));
+routes.post('/integrations/email/test', optionalTenantMiddleware(), authMiddleware, (req, res) => EmailController.test(req, res));
 
 /**
  * SMS Gateway
  */
-routes.get('/api/integrations/sms/config', optionalTenantMiddleware(), authMiddleware, (req, res) => SmsController.getConfig(req, res));
-routes.post('/api/integrations/sms/config', optionalTenantMiddleware(), authMiddleware, (req, res) => SmsController.updateConfig(req, res));
-routes.post('/api/integrations/sms/test', optionalTenantMiddleware(), authMiddleware, (req, res) => SmsController.testConnection(req, res));
+routes.get('/integrations/sms/config', optionalTenantMiddleware(), authMiddleware, (req, res) => SmsController.getConfig(req, res));
+routes.post('/integrations/sms/config', optionalTenantMiddleware(), authMiddleware, (req, res) => SmsController.updateConfig(req, res));
+routes.post('/integrations/sms/test', optionalTenantMiddleware(), authMiddleware, (req, res) => SmsController.testConnection(req, res));
 
 /**
  * Z-API/WhatsApp
  */
-routes.get('/api/integrations/zapi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => ZApiController.getConfig(req, res));
-routes.post('/api/integrations/zapi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => ZApiController.saveConfig(req, res));
-routes.post('/api/integrations/zapi/test', optionalTenantMiddleware(), authMiddleware, (req, res) => ZApiController.testConnection(req, res));
+routes.get('/integrations/zapi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => ZApiController.getConfig(req, res));
+routes.post('/integrations/zapi/config', optionalTenantMiddleware(), authMiddleware, (req, res) => ZApiController.saveConfig(req, res));
+routes.post('/integrations/zapi/test', optionalTenantMiddleware(), authMiddleware, (req, res) => ZApiController.testConnection(req, res));
 
 // ==================== ROTAS AUTENTICADAS ====================
+
+console.log('🔧 Aplicando authMiddleware global para rotas seguintes...');
 
 routes.use(authMiddleware);
 
 /**
  * Listar chamados
- * POST /requests OU POST /api/requests
+ * POST /requests (montado como /api/requests no app.js)
  */
 routes.post('/requests', RequestController.index);
-routes.post('/api/requests', RequestController.index);
 
 /**
  * Chamados em atraso
- * GET /requests/overdue OU GET /api/requests/overdue
+ * GET /requests/overdue (montado como /api/requests/overdue no app.js)
  */
 routes.get('/requests/overdue', RequestController.overdue);
-routes.get('/api/requests/overdue', RequestController.overdue);
 
 /**
  * Carrega dados do formulário de novo chamado (por login)
@@ -700,40 +800,39 @@ routes.post('/request/:id', RequestController.update);
 
 /**
  * Estatísticas do dashboard (portal)
- * GET /dashboard/stats OU GET /api/dashboard/stats
+ * GET /dashboard/stats (montado como /api/dashboard/stats no app.js)
  */
 routes.get('/dashboard/stats', DashboardController.stats);
-routes.get('/api/dashboard/stats', DashboardController.stats);
 
 /**
  * Dashboard Admin - Estatísticas gerais
- * GET /api/admin/dashboard/stats
+ * GET /admin/dashboard/stats (montado como /api/admin/dashboard/stats no app.js)
  */
-routes.get('/api/admin/dashboard/stats', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getAdminStats(req, res));
+routes.get('/admin/dashboard/stats', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getAdminStats(req, res));
 
 /**
  * Dashboard Admin - Atividades recentes
- * GET /api/admin/dashboard/activities
+ * GET /admin/dashboard/activities (montado como /api/admin/dashboard/activities no app.js)
  */
-routes.get('/api/admin/dashboard/activities', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getActivities(req, res));
+routes.get('/admin/dashboard/activities', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getActivities(req, res));
 
 /**
  * Dashboard Admin - Alertas ativos
- * GET /api/admin/dashboard/alerts
+ * GET /admin/dashboard/alerts (montado como /api/admin/dashboard/alerts no app.js)
  */
-routes.get('/api/admin/dashboard/alerts', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getAlerts(req, res));
+routes.get('/admin/dashboard/alerts', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getAlerts(req, res));
 
 /**
  * Dashboard Admin - Saúde do sistema
- * GET /api/admin/dashboard/health
+ * GET /admin/dashboard/health (montado como /api/admin/dashboard/health no app.js)
  */
-routes.get('/api/admin/dashboard/health', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getSystemHealth(req, res));
+routes.get('/admin/dashboard/health', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getSystemHealth(req, res));
 
 /**
  * Dashboard Admin - Criar atividade
- * POST /api/admin/dashboard/activity
+ * POST /admin/dashboard/activity (montado como /api/admin/dashboard/activity no app.js)
  */
-routes.post('/api/admin/dashboard/activity', optionalTenantMiddleware(), authMiddleware, DashboardController.createActivity);
+routes.post('/admin/dashboard/activity', optionalTenantMiddleware(), authMiddleware, DashboardController.createActivity);
 
 /**
  * Buscar cliente
@@ -1372,6 +1471,22 @@ routes.get('/invoices/:client_id', async (req, res) => {
   const crypto = require('crypto');
   
   try {
+    // Validação: verifica se tenant está disponível
+    if (!req.tenant) {
+      logger.warn('[GET /invoices] Tentativa de acesso sem tenant configurado', {
+        client_id: clientIdOrLogin,
+        has_tenant: !!req.tenant
+      });
+      return res.json({
+        observacao: 'nao',
+        rem_obs: null,
+        invoices: {
+          pending_invoices: [],
+          paid_invoices: []
+        }
+      });
+    }
+    
     // Tenta buscar o cliente para pegar o login - aceita login ou ID
     const clientResult = await MkAuthAgentService.buscarClienteAuto(req.tenant, clientIdOrLogin);
     const client = clientResult?.data?.[0];

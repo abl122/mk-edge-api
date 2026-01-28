@@ -34,7 +34,7 @@ const PlanSchema = new mongoose.Schema({
   
   periodo: {
     type: String,
-    enum: ['mensal', 'trimestral', 'anual', 'vitalicio'],
+    enum: ['mensal', 'semestral', 'anual', 'vitalicio'],
     default: 'mensal'
   },
   

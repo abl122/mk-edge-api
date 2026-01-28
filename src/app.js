@@ -2,10 +2,45 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
+const cron = require('node-cron');
 const routes = require('./routes');
 const { publicMiddleware, serveHtmlWithTenant } = require('./app/middlewares/publicMiddleware');
+const InvoiceGenerationJob = require('./jobs/InvoiceGenerationJob');
+const logger = require('./logger');
 
 const app = express();
+
+// ==================== CRON JOBS ====================
+
+// Job de geração de faturas mensais - executa todo dia 1º às 00:00
+cron.schedule('0 0 1 * *', async () => {
+  logger.info('🔄 Executando job de geração de faturas mensais...');
+  try {
+    await InvoiceGenerationJob.gerarFaturasMensais();
+  } catch (error) {
+    logger.error('❌ Erro ao executar job de geração de faturas', { error: error.message });
+  }
+}, {
+  timezone: 'America/Sao_Paulo'
+});
+
+// Job de marcar faturas vencidas - executa diariamente às 06:00
+cron.schedule('0 6 * * *', async () => {
+  logger.info('🔄 Executando job de atualização de faturas vencidas...');
+  try {
+    const InvoiceService = require('./app/services/InvoiceService');
+    const vencidas = await InvoiceService.marcarFaturasVencidas();
+    logger.info(`✅ ${vencidas} faturas marcadas como vencidas`);
+  } catch (error) {
+    logger.error('❌ Erro ao executar job de faturas vencidas', { error: error.message });
+  }
+}, {
+  timezone: 'America/Sao_Paulo'
+});
+
+logger.info('✅ Cron jobs agendados:');
+logger.info('   - Geração de faturas: Todo dia 1º às 00:00');
+logger.info('   - Atualização de vencidas: Diariamente às 06:00');
 
 // Middlewares
 app.use(helmet({

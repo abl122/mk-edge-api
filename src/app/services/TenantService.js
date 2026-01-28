@@ -145,6 +145,7 @@ class TenantService {
   static async create(data) {
     try {
       const Tenant = mongoose.model('Tenant');
+      const crypto = require('crypto');
 
       // Valida campos obrigatórios
       if (!data.provedor?.nome || !data.provedor?.cnpj) {
@@ -157,6 +158,22 @@ class TenantService {
         throw new Error('Já existe um tenant com este CNPJ');
       }
 
+      // Gera token do agente se não foi fornecido
+      if (!data.agente) {
+        data.agente = {};
+      }
+      if (!data.agente.token) {
+        data.agente.token = crypto.randomBytes(32).toString('hex');
+      }
+
+      logger.debug('Criando tenant com dados:', {
+        plano_atual: data.plano_atual,
+        provedor_nome: data.provedor?.nome,
+        provedor_ativo: data.provedor?.ativo,
+        agente_url: data.agente?.url,
+        has_assinatura: !!data.assinatura
+      });
+
       const tenant = new Tenant({
         ...data,
         criado_em: new Date(),
@@ -164,6 +181,13 @@ class TenantService {
       });
 
       await tenant.save();
+
+      logger.info('Tenant salvo no MongoDB:', {
+        tenant_id: tenant._id,
+        plano_atual: tenant.plano_atual,
+        provedor_ativo: tenant.provedor?.ativo,
+        assinatura_plano: tenant.assinatura?.plano
+      });
 
       logger.info('Tenant criado com sucesso', {
         tenant_id: tenant._id,
@@ -192,6 +216,23 @@ class TenantService {
       }
 
       const Tenant = mongoose.model('Tenant');
+      const Plan = mongoose.model('Plan');
+      const crypto = require('crypto');
+
+      // Se está atualizando o plano da assinatura, buscar o valor real do plano
+      if (data.assinatura?.plano) {
+        const plan = await Plan.findOne({ slug: data.assinatura.plano });
+        if (plan) {
+          // Atualizar valor_mensal e plano_nome com os valores reais do plano
+          data.assinatura.valor_mensal = plan.valor_mensal;
+          data.assinatura.plano_nome = plan.nome;
+          logger.info('📊 Sincronizando dados do plano', {
+            plano: plan.slug,
+            nome: plan.nome,
+            valor_mensal: plan.valor_mensal
+          });
+        }
+      }
 
       // Se está atualizando CNPJ, verifica se já existe
       if (data.provedor?.cnpj) {
@@ -205,7 +246,23 @@ class TenantService {
         }
       }
 
+      // Gera token do agente se não foi fornecido e agente existe
+      if (data.agente && !data.agente.token) {
+        data.agente.token = crypto.randomBytes(32).toString('hex');
+      }
+
       data.atualizado_em = new Date();
+
+      // Log detalhado dos dados sendo atualizados
+      logger.info('📝 Dados sendo salvos no tenant:', {
+        tenant_id: tenantId,
+        provedor_nome: data.provedor?.nome,
+        provedor_admin_name: data.provedor?.admin_name,
+        provedor_dominio: data.provedor?.dominio,
+        plano_atual: data.plano_atual,
+        assinatura_plano: data.assinatura?.plano,
+        assinatura_valor_mensal: data.assinatura?.valor_mensal
+      });
 
       const tenant = await Tenant.findByIdAndUpdate(
         tenantId,
@@ -215,6 +272,54 @@ class TenantService {
 
       if (!tenant) {
         throw new Error('Tenant não encontrado');
+      }
+
+      // Se foi enviada uma nova senha, atualizar o usuário do portal
+      if (data.senha_portal && data.senha_portal.trim()) {
+        const User = mongoose.model('User');
+        const bcrypt = require('bcryptjs');
+        
+        logger.info('🔐 Atualizando senha do usuário portal', {
+          tenant_id: tenantId,
+          tenant_cnpj: tenant.provedor?.cnpj
+        });
+
+        // Buscar usuário portal do tenant
+        const portalUser = await User.findOne({
+          tenant_id: tenantId,
+          roles: 'portal'
+        });
+
+        if (portalUser) {
+          // Atualizar senha existente
+          const hashedPassword = await bcrypt.hash(data.senha_portal, 10);
+          portalUser.senha = hashedPassword;
+          await portalUser.save();
+          
+          logger.info('✅ Senha do usuário portal atualizada', {
+            user_id: portalUser._id,
+            login: portalUser.login
+          });
+        } else {
+          // Criar usuário portal se não existir
+          const hashedPassword = await bcrypt.hash(data.senha_portal, 10);
+          const cnpj = tenant.provedor?.cnpj?.replace(/[^\d]/g, '');
+          
+          const newPortalUser = await User.create({
+            tenant_id: tenantId,
+            login: cnpj,
+            senha: hashedPassword,
+            nome: tenant.provedor?.nome || 'Portal',
+            email: tenant.provedor?.email || '',
+            roles: 'portal',
+            ativo: true
+          });
+          
+          logger.info('✅ Usuário portal criado', {
+            user_id: newPortalUser._id,
+            login: newPortalUser.login
+          });
+        }
       }
 
       logger.info('Tenant atualizado com sucesso', {

@@ -240,9 +240,9 @@ class EfiController {
       // Buscar configuração atual
       const current = await Integration.findOne({ tenant_id: tenant._id, type: 'efi' })
       
-      // Definir caminho do certificado
+      // Definir caminho do certificado - usa nome padrão global, não por tenant
       const certificatesDir = path.join(__dirname, '../../../certificates')
-      const filename = `${tenant._id}_efi_${environment}.p12`
+      const filename = `efi-${environment}.p12`
       const certificatePath = path.join(certificatesDir, filename)
 
       // Garantir que o diretório existe
@@ -251,10 +251,9 @@ class EfiController {
       }
 
       // Remover certificado anterior se existir
-      const oldCertPath = current?.efi?.[environment]?.certificate_path
-      if (oldCertPath && fs.existsSync(oldCertPath)) {
-        fs.unlinkSync(oldCertPath)
-        logger.info('Certificado anterior removido', { path: oldCertPath })
+      if (fs.existsSync(certificatePath)) {
+        fs.unlinkSync(certificatePath)
+        logger.info('Certificado anterior removido', { path: certificatePath })
       }
 
       // Mover arquivo para o diretório de certificados

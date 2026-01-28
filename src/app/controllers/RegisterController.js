@@ -21,6 +21,7 @@ class RegisterController {
         dominio,
         email,
         telefone,
+        admin_name,
         admin_nome,
         admin_email,
         admin_telefone,
@@ -113,13 +114,16 @@ class RegisterController {
           cnpj: cnpjNormalizado,
           email: email,
           telefone: telefone,
-          dominio: dominio || null
+          dominio: dominio || null,
+          admin_name: admin_name || admin_nome,
+          ativo: true
         },
+        plano_atual: plan_slug, // Slug do plano selecionado
         assinatura: {
-          plano: plan_slug,
-          ativa: false, // Será ativado após pagamento
+          plano: plan_slug, // Usa o plano escolhido
+          ativa: true, // Ativa imediatamente
           data_inicio: new Date(),
-          data_fim: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // +30 dias
+          data_fim: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // +1 ano
         },
         agente: {
           url: process.env.AGENTE_URL || 'http://localhost:3001',
@@ -153,18 +157,50 @@ class RegisterController {
 
       await novoUsuario.save();
 
+      // === CRIAR USUÁRIO PORTAL ===
+
+      const usuarioPortal = new User({
+        nome: nome,
+        login: cnpjNormalizado,
+        email: email,
+        telefone: telefone || '',
+        senha: senhaHash, // Mesma senha do admin inicialmente
+        roles: ['portal'],
+        tenant_id: tenant._id,
+        ativo: true,
+        criado_em: new Date(),
+        atualizado_em: new Date()
+      });
+
+      await usuarioPortal.save();
+
       // === CRIAR SUBSCRIPTION ===
 
       let subscription = null;
       try {
         const Subscription = require('../schemas/Subscription');
+        const Plan = require('../schemas/Plan');
+        
+        // Buscar informações do plano
+        const plan = await Plan.findOne({ slug: plan_slug });
+        
+        if (!plan) {
+          console.warn('Plano não encontrado:', plan_slug);
+          throw new Error('Plano não encontrado');
+        }
+        
+        const dataVencimento = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // +30 dias
+        
         const novaSubscription = new Subscription({
           tenant_id: tenant._id,
           plan_slug: plan_slug,
-          status: 'trial',
+          plan_name: plan.nome,
+          valor_mensal: plan.valor_mensal || 0,
+          status: 'ativa',
           data_inicio: new Date(),
-          data_fim: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // +30 dias
-          criado_em: new Date()
+          data_vencimento: dataVencimento,
+          ciclo_cobranca: 'mensal',
+          renovacao_automatica: true
         });
 
         subscription = await novaSubscription.save();

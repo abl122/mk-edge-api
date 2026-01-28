@@ -23,6 +23,11 @@ const TenantSchema = new mongoose.Schema({
     dominio: String,
     email: String,
     telefone: String,
+    admin_name: String, // Nome do responsável pelo provedor
+    ativo: {
+      type: Boolean,
+      default: true,
+    },
   },
   
   // Configuração do banco de dados (DEPRECADA - usar agente)
@@ -91,6 +96,12 @@ const TenantSchema = new mongoose.Schema({
     },
   },
   
+  // Plano atual (slug do plano)
+  plano_atual: {
+    type: String,
+    required: false,
+  },
+  
   // Assinatura/Subscription
   assinatura: {
     ativa: {
@@ -100,8 +111,11 @@ const TenantSchema = new mongoose.Schema({
     },
     plano: {
       type: String,
-      enum: ['trial', 'basico', 'profissional', 'enterprise'],
-      default: 'trial',
+      required: false,
+    },
+    plano_nome: {
+      type: String,
+      required: false,
     },
     data_inicio: Date,
     data_fim: Date,
