@@ -27,10 +27,8 @@ async function checkRemoteUpdataTenant() {
     console.log('🔍 Conectando ao MongoDB REMOTO...');
     console.log(`   URI: ${MONGODB_REMOTE_URI.replace(/\/\/.*@/, '//***@')}\n`);
 
-    connection = await mongoose.createConnection(MONGODB_REMOTE_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    }).asConnected();
+    connection = mongoose.createConnection(MONGODB_REMOTE_URI);
+    await connection.asPromise();
 
     console.log('✅ Conectado com sucesso!\n');
 
