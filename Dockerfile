@@ -16,6 +16,9 @@ RUN npm ci
 # Copiar código fonte
 COPY --chown=nodejs:nodejs . .
 
+# Criar diretório de certificados
+RUN mkdir -p /app/certificates && chown nodejs:nodejs /app/certificates
+
 # Garantir permissão do entrypoint
 RUN chmod +x docker-entrypoint.sh
 
