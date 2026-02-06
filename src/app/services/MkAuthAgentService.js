@@ -612,19 +612,26 @@ class MkAuthAgentService {
      * Dashboard: OTIMIZADO - Todas as estatísticas de clientes em 1 query
      * Substitui: clientesAtivos, clientesOnline, clientesRecentes, clientesBloqueados, clientesObservacao
      * 
-     * Clientes recentes = cadastrados no mês atual
+     * Clientes recentes = cadastrados no mês atual (campo cadastro em formato dd/MM/yyyy)
      */
-    dashboardClientesStats: () => ({
-      sql: `SELECT 
-              COUNT(*) as total,
-              SUM(CASE WHEN bloqueado = 's' OR bloqueado = 'sim' THEN 1 ELSE 0 END) as bloqueados,
-              SUM(CASE WHEN observacao = 's' OR observacao = 'sim' THEN 1 ELSE 0 END) as observacao,
-              SUM(CASE WHEN YEAR(data_ins) = YEAR(CURDATE()) AND MONTH(data_ins) = MONTH(CURDATE()) THEN 1 ELSE 0 END) as recentes,
-              (SELECT COUNT(*) FROM vtab_conectados) as online
-            FROM sis_cliente 
-            WHERE cli_ativado = 's'`,
-      params: {}
-    }),
+    dashboardClientesStats: () => {
+      const now = new Date();
+      const mesAtual = String(now.getMonth() + 1).padStart(2, '0');
+      const anoAtual = now.getFullYear();
+      return {
+        sql: `SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN bloqueado = 's' OR bloqueado = 'sim' THEN 1 ELSE 0 END) as bloqueados,
+                SUM(CASE WHEN observacao = 's' OR observacao = 'sim' THEN 1 ELSE 0 END) as observacao,
+                SUM(CASE WHEN cadastro IS NOT NULL AND cadastro LIKE :dataPattern THEN 1 ELSE 0 END) as recentes,
+                (SELECT COUNT(*) FROM vtab_conectados) as online
+              FROM sis_cliente 
+              WHERE cli_ativado = 's'`,
+        params: {
+          dataPattern: `%/${mesAtual}/${anoAtual}`
+        }
+      };
+    },
 
     /**
      * Dashboard: OTIMIZADO - Todas as estatísticas de faturas em 1 query
