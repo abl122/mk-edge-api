@@ -616,13 +616,11 @@ class MkAuthAgentService {
      */
     dashboardClientesStats: () => ({
       sql: `SELECT 
-              COUNT(*) as total,
-              SUM(CASE WHEN bloqueado = 's' OR bloqueado = 'sim' THEN 1 ELSE 0 END) as bloqueados,
-              SUM(CASE WHEN observacao = 's' OR observacao = 'sim' THEN 1 ELSE 0 END) as observacao,
-              SUM(CASE WHEN cadastro LIKE CONCAT('%/', LEFT(DATE_FORMAT(CURDATE(), '%m/%Y'), 10)) THEN 1 ELSE 0 END) as recentes,
-              IFNULL((SELECT COUNT(*) FROM vtab_conectados), 0) as online
-            FROM sis_cliente 
-            WHERE cli_ativado = 's'`,
+              (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's') as total,
+              (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's' AND (bloqueado = 's' OR bloqueado = 'sim')) as bloqueados,
+              (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's' AND (observacao = 's' OR observacao = 'sim')) as observacao,
+              (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's' AND cadastro LIKE CONCAT('%/', DATE_FORMAT(CURDATE(), '%m/%Y'))) as recentes,
+              (SELECT COUNT(*) FROM vtab_conectados) as online`,
       params: {}
     }),
 
