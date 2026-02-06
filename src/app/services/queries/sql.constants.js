@@ -50,14 +50,6 @@ const SQL_QUERIES = {
     description: 'Lista clientes offline'
   },
 
-  CLIENTES_RECENTES: {
-    template: `SELECT id, login, nome, data_ins FROM sis_cliente 
-               WHERE data_ins >= DATE_SUB(NOW(), INTERVAL 30 DAY) 
-               ORDER BY data_ins DESC 
-               LIMIT 50`,
-    description: 'Clientes cadastrados nos últimos 30 dias'
-  },
-
   CLIENTES_BLOQUEADOS: {
     template: `SELECT id, login, nome, email, fone FROM sis_cliente WHERE bloqueado = 'sim' LIMIT 100`,
     description: 'Lista clientes bloqueados'
