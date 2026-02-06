@@ -620,7 +620,8 @@ class MkAuthAgentService {
               (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's' AND (bloqueado = 's' OR bloqueado = 'sim')) as bloqueados,
               (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's' AND (observacao = 's' OR observacao = 'sim')) as observacao,
               (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's' AND cadastro LIKE CONCAT('%/', DATE_FORMAT(CURDATE(), '%m/%Y'))) as recentes,
-              (SELECT COUNT(*) FROM vtab_conectados) as online`,
+              (SELECT COUNT(*) FROM vtab_conectados) as online
+            FROM (SELECT 1) t`,
       params: {}
     }),
 
