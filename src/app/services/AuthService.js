@@ -181,7 +181,7 @@ class AuthService {
    */
   static gerarTokens(user, tenant = null) {
     const jwtSecret = process.env.JWT_SECRET;
-    const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
+    const expiresIn = process.env.JWT_EXPIRES_IN || '15d';
 
     const payload = {
       id: user._id.toString(),
@@ -212,7 +212,7 @@ class AuthService {
       refreshPayload.tenant_id = payload.tenant_id;
     }
 
-    const refreshToken = jwt.sign(refreshPayload, jwtSecret, { expiresIn: '30d' });
+    const refreshToken = jwt.sign(refreshPayload, jwtSecret, { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d' });
 
     return { token, refreshToken };
   }

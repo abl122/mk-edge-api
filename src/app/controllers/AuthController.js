@@ -67,7 +67,7 @@ class AuthController {
           userId: user._id.toString()
         },
         process.env.JWT_SECRET || 'mk-edge-secret-2026',
-        { expiresIn: '24h' }
+        { expiresIn: process.env.JWT_EXPIRES_IN || '15d' }
       );
 
       // Atualizar último login
@@ -155,7 +155,7 @@ class AuthController {
           login: user.login
         },
         process.env.JWT_SECRET || 'mk-edge-secret-2026',
-        { expiresIn: '7d' }
+        { expiresIn: process.env.JWT_EXPIRES_IN || '15d' }
       );
 
       // Atualizar último login

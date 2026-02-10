@@ -63,10 +63,10 @@ async function authMiddleware(req, res, next) {
         throw new Error('Basic Auth inválido');
       }
 
-      // Valida timestamp (máximo 24 horas)
+      // Valida timestamp (máximo 15 dias para compatibilidade com JWT)
       const now = Date.now();
       const tokenAge = now - parseInt(timestamp);
-      const maxAge = 24 * 60 * 60 * 1000; // 24 horas
+      const maxAge = 15 * 24 * 60 * 60 * 1000; // 15 dias
 
       if (tokenAge > maxAge) {
         throw new Error('Token expirado');
