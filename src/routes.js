@@ -1741,7 +1741,7 @@ routes.get('/requests/history', async (req, res) => {
       // Adiciona campos específicos conforme o status
       if (chamado.status?.toLowerCase() === 'fechado') {
         request.tecnico = chamado.employee_name || chamado.tecnico;
-        request.fechamento = chamado.fechamento || new Date().toISOString();
+        request.fechamento = chamado.fechamento;
         request.login_atend = chamado.login_atend;
         closedRequests.push(request);
       } else {
