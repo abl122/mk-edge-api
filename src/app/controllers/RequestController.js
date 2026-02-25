@@ -628,13 +628,13 @@ class RequestController {
           campos.push('status = ?');
           valores.push('fechado');
           
-          // Data de fechamento - SEMPRE PREENCHE
-          const dataFormatada = closingDate 
-            ? new Date(closingDate).toISOString().slice(0, 19).replace('T', ' ')
-            : new Date().toISOString().slice(0, 19).replace('T', ' ');
-          campos.push('fechamento = ?');
-          valores.push(dataFormatada);
-          console.log('   - Data fechamento:', dataFormatada);
+          // Data de fechamento
+          if (closingDate) {
+            campos.push('fechamento = ?');
+            const dataFormatada = new Date(closingDate).toISOString().slice(0, 19).replace('T', ' ');
+            valores.push(dataFormatada);
+            console.log('   - Data fechamento:', dataFormatada);
+          }
           
           // Motivo = closingNote
           let motivoFechar = closingNote || 'Fechado pelo app';
