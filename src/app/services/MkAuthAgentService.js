@@ -771,7 +771,7 @@ class MkAuthAgentService {
      * O backend buscará a mensagem separadamente se necessário
      */
     listarChamados: ({ date, login, tecnico, isAdmin, sortMode = 'DESC' } = {}) => {
-      let sql = `SELECT s.id, s.chamado, s.nome, s.login, s.status, s.prioridade, s.assunto, s.visita, s.atendente, s.login_atend, s.tecnico, s.abertura, c.senha, c.plano, c.tipo, c.ip, c.endereco_res, c.numero_res, c.bairro_res, c.celular, f.nome as employee_name FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id`;
+      let sql = `SELECT s.id, s.chamado, s.nome, s.login, s.status, s.prioridade, s.assunto, s.visita, s.atendente, s.login_atend, s.tecnico, s.abertura, s.fechamento, c.senha, c.plano, c.tipo, c.ip, c.endereco_res, c.numero_res, c.bairro_res, c.celular, f.nome as employee_name FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id`;
       
       const conditions = [];
       
