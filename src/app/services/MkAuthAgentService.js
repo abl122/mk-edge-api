@@ -1697,6 +1697,37 @@ class MkAuthAgentService {
   }
   
   /**
+   * Normaliza observações remotas e datas
+   * Converte datas para formato ISO (YYYY-MM-DD)
+   * Retorna null se não for uma data válida
+   * 
+   * @param {String|Date|*} value - Valor a normalizar
+   * @returns {String|null} Data em formato YYYY-MM-DD ou null
+   */
+  static normalizeRemObs(value) {
+    if (!value) {
+      return null;
+    }
+    
+    try {
+      // Tenta converter para Date
+      const date = new Date(value);
+      
+      // Verifica se é uma data válida
+      if (isNaN(date.getTime())) {
+        return null;
+      }
+      
+      // Retorna em formato ISO YYYY-MM-DD
+      return date.toISOString().slice(0, 10);
+      
+    } catch (error) {
+      // Se não conseguir converter, retorna null
+      return null;
+    }
+  }
+
+  /**
    * Formata bytes para formato legível
    * Útil para dados do radacct
    * 
