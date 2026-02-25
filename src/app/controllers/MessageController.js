@@ -17,15 +17,7 @@ class MessageController {
       const { tenant } = req;
       const { cliente_id, chamado, limit } = req.query;
       
-      console.log('📨 MessageController.show - START', {
-        chamado,
-        cliente_id,
-        tenant_nome: tenant?.nome,
-        usaAgente: tenant?.usaAgente?.()
-      });
-      
       if (!tenant.usaAgente()) {
-        console.log('❌ Tenant não está usando agente');
         return res.status(400).json({
           error: 'Provedor não configurado para usar agente MK-Auth'
         });
@@ -34,7 +26,6 @@ class MessageController {
       // ✅ Suporta ambos os formatos: cliente_id ou chamado
       const searchParam = cliente_id || chamado;
       if (!searchParam) {
-        console.log('❌ Falta cliente_id ou chamado');
         return res.status(400).json({
           error: 'cliente_id ou chamado é obrigatório'
         });
@@ -44,50 +35,31 @@ class MessageController {
       
       // Se é um chamado (ID de chamado), buscar mensagens do chamado
       if (chamado) {
-        console.log('📨 Buscando mensagens do chamado:', chamado);
+        console.log('[MessageController.show] Buscando mensagens do chamado:', chamado);
+        
+        // Query para buscar mensagens de um chamado específico
+        const sql = `SELECT id, msg as texto, msg_data as data, atendente, tipo 
+                     FROM sis_msg 
+                     WHERE chamado = ? 
+                     ORDER BY msg_data DESC`;
         
         try {
-          // Usa a mesma query que MkAuthAgentService para garantir consistência
-          const queryDef = MkAuthAgentService.queries.chamadoCompletoComMensagens(chamado);
-          console.log('🔄 Enviando SQL ao agente...');
-          
           const result = await MkAuthAgentService.sendToAgent(
             tenant,
-            queryDef.sql,
-            queryDef.params
+            sql,
+            [chamado]
           );
           
-          console.log('✅ Resposta do agente recebida:', {
-            success: result.success,
-            count: result.data?.length || 0
-          });
+          mensagens = (result.data || []).map(m => ({
+            id: m.id,
+            texto: m.texto,
+            data: m.data,
+            atendente: m.atendente,
+            tipo: m.tipo
+          }));
           
-          // Se retornou dados, extrai as mensagens
-          if (result.data && result.data.length > 0) {
-            const chamadoData = result.data[0];
-            try {
-              // Mensagens vêm em JSON dentro de mensagens_json
-              const mensagensJson = chamadoData.mensagens_json;
-              if (typeof mensagensJson === 'string') {
-                mensagens = JSON.parse(mensagensJson);
-              } else if (Array.isArray(mensagensJson)) {
-                mensagens = mensagensJson;
-              } else {
-                mensagens = [];
-              }
-            } catch (parseError) {
-              console.error('❌ Erro ao parsear mensagens JSON:', parseError);
-              mensagens = [];
-            }
-          }
-          
-          console.log(`📨 Processadas ${mensagens.length} mensagens do chamado ${chamado}`);
+          console.log(`[MessageController.show] ${mensagens.length} mensagens do chamado ${chamado}`);
         } catch (error) {
-          console.error('❌ Erro ao buscar mensagens do chamado:', {
-            error: error.message,
-            stack: error.stack,
-            chamado
-          });
           logger.error('[MessageController.show] Erro ao buscar mensagens do chamado', {
             error: error.message,
             chamado
@@ -114,8 +86,6 @@ class MessageController {
         cliente_id,
         chamado
       });
-      
-      console.log('📨 Retornando mensagens:', JSON.stringify(mensagens, null, 2));
       
       return res.json(mensagens);
       

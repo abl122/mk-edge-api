@@ -260,7 +260,23 @@ class MkAuthAgentService {
       };
     },
     
-
+    /**
+     * Conta clientes recentes (cadastrados no mês atual)
+     * Formato do campo cadastro: dd/MM/yyyy
+     * Simplificado para match idêntico ao backend-antigo
+     */
+    clientesRecentes: () => {
+      const now = new Date();
+      const mesAtual = String(now.getMonth() + 1).padStart(2, '0');
+      const anoAtual = now.getFullYear();
+      return {
+        sql: `SELECT COUNT(*) as total 
+              FROM sis_cliente 
+              WHERE cli_ativado = 's' 
+                AND cadastro LIKE '%/${mesAtual}/${anoAtual}%'`,
+        params: {}
+      };
+    },
     
     /**
      * Conta clientes bloqueados
@@ -611,17 +627,16 @@ class MkAuthAgentService {
     /**
      * Dashboard: OTIMIZADO - Todas as estatísticas de clientes em 1 query
      * Substitui: clientesAtivos, clientesOnline, clientesRecentes, clientesBloqueados, clientesObservacao
-     * 
-     * Clientes recentes = cadastrados no mês atual (campo cadastro em formato dd/MM/yyyy)
      */
     dashboardClientesStats: () => ({
       sql: `SELECT 
-              (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's') as total,
-              (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's' AND (bloqueado = 's' OR bloqueado = 'sim')) as bloqueados,
-              (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's' AND (observacao = 's' OR observacao = 'sim')) as observacao,
-              (SELECT COUNT(*) FROM sis_cliente WHERE cli_ativado = 's' AND cadastro LIKE CONCAT('%/', DATE_FORMAT(CURDATE(), '%m/%Y'))) as recentes,
+              COUNT(*) as total,
+              SUM(CASE WHEN bloqueado = 's' OR bloqueado = 'sim' THEN 1 ELSE 0 END) as bloqueados,
+              SUM(CASE WHEN observacao = 's' OR observacao = 'sim' THEN 1 ELSE 0 END) as observacao,
+              SUM(CASE WHEN cadastro LIKE CONCAT('%/', DATE_FORMAT(CURDATE(), '%m/%Y')) THEN 1 ELSE 0 END) as recentes,
               (SELECT COUNT(*) FROM vtab_conectados) as online
-            FROM (SELECT 1) t`,
+            FROM sis_cliente 
+            WHERE cli_ativado = 's'`,
       params: {}
     }),
 
@@ -846,7 +861,7 @@ class MkAuthAgentService {
      */
     chamadoCompletoComMensagens: (requestId) => {
       return {
-        sql: `SELECT @old_group_concat_max_len := @@group_concat_max_len, @group_concat_max_len := 1000000, s.id, s.chamado, s.visita, s.fechamento, s.motivo_fechar as motivo_fechamento, s.nome, s.login, s.tecnico, s.status, s.assunto, s.prioridade, c.id as client_id, c.senha, c.plano, c.tipo, c.ssid, c.ip, c.endereco_res as endereco, c.numero_res as numero, c.bairro_res as bairro, c.equipamento, c.coordenadas, c.observacao as observacoes, c.caixa_herm as caixa_hermetica, c.fone as telefone, c.celular, f.nome as employee_name, (SELECT IFNULL(CONCAT('[', GROUP_CONCAT(JSON_OBJECT('id', m.id, 'texto', m.msg, 'data', m.msg_data, 'timestamp', m.msg_data, 'atendente', m.atendente, 'tipo', COALESCE(m.tipo, 'tecnico')) ORDER BY m.msg_data ASC SEPARATOR ','), ']'), '[]') FROM sis_msg m WHERE m.chamado = s.chamado) as mensagens_json FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id WHERE s.id = :requestId LIMIT 1`,
+        sql: `SELECT @old_group_concat_max_len := @@group_concat_max_len, @group_concat_max_len := 1000000, s.id, s.chamado, s.visita, s.fechamento, s.motivo_fechar as motivo_fechamento, s.nome, s.login, s.tecnico, s.status, s.assunto, s.prioridade, c.id as client_id, c.senha, c.plano, c.tipo, c.ssid, c.ip, c.endereco_res as endereco, c.numero_res as numero, c.bairro_res as bairro, c.equipamento, c.coordenadas, c.observacao as observacoes, c.caixa_herm as caixa_hermetica, c.fone as telefone, c.celular, f.nome as employee_name, (SELECT IFNULL(CONCAT('[', GROUP_CONCAT(JSON_OBJECT('id', m.id, 'texto', m.msg, 'data', m.msg_data, 'timestamp', m.msg_data, 'atendente', m.atendente, 'tipo', COALESCE(m.tipo, 'tecnico')) ORDER BY m.msg_data DESC SEPARATOR ','), ']'), '[]') FROM sis_msg m WHERE m.chamado = s.chamado) as mensagens_json FROM sis_suporte s LEFT JOIN sis_cliente c ON s.login = c.login LEFT JOIN sis_func f ON s.tecnico = f.id WHERE s.id = :requestId LIMIT 1`,
         params: { requestId },
         transform: (rows) => {
           try {
@@ -928,9 +943,9 @@ class MkAuthAgentService {
             // TODO: Gerar URL do mapa estático se latitude/longitude existirem
             const static_map_url = null;
             
-            // ✅ ÚLTIMA NOTA: com ordenação ASC, a última posição é a mais recente
+            // ✅ ÚLTIMA NOTA: Com ORDER BY DESC, a primeira posição [0] é a mais recente
             const ultimaNota = mensagens && mensagens.length > 0 
-              ? mensagens[mensagens.length - 1] 
+              ? mensagens[0] 
               : null;
             
             const result = {
@@ -957,7 +972,7 @@ class MkAuthAgentService {
               coordenadas: row.coordenadas,
               mensagens: mensagens || [],
               ultima_nota: ultimaNota,  // ✅ NOVA PROPRIEDADE: última nota do array
-              _mensagens_order: 'ASC',  // 📌 INDICADOR: mensagens em ordem ASC (mais antiga primeiro)
+              _mensagens_order: 'DESC',  // 📌 INDICADOR: mensagens em ordem DESC (recente primeiro)
               observacoes: row.observacoes,
               caixa_hermetica: row.caixa_hermetica,
               employee_name: row.employee_name,
@@ -1361,49 +1376,6 @@ class MkAuthAgentService {
       params: {}
     }),
   };
-
-  /**
-   * Normaliza rem_obs para manter apenas a data (YYYY-MM-DD)
-   */
-  static normalizeRemObs(remObs) {
-    if (remObs === null || remObs === undefined) {
-      return null;
-    }
-
-    const raw = String(remObs).trim();
-    if (!raw) {
-      return null;
-    }
-
-    const firstPart = raw.split(/[ T]/)[0];
-    if (/^\d{4}-\d{2}-\d{2}$/.test(firstPart)) {
-      return firstPart;
-    }
-
-    const parsed = new Date(raw);
-    if (!isNaN(parsed)) {
-      return parsed.toISOString().slice(0, 10);
-    }
-
-    return firstPart || null;
-  }
-
-  /**
-   * Garante rem_obs normalizado em resultados de clientes
-   */
-  static normalizeClienteResult(result = {}) {
-    if (!result || !result.data) {
-      return result;
-    }
-
-    return {
-      ...result,
-      data: result.data.map(client => ({
-        ...client,
-        rem_obs: this.normalizeRemObs(client.rem_obs)
-      }))
-    };
-  }
   
   /**
    * Executa uma query nomeada
@@ -1451,10 +1423,9 @@ class MkAuthAgentService {
     // Tenta como login primeiro (CPF/CNPJ)
     try {
       const loginResult = await this.execute(tenant, 'buscarClientePorLogin', identifierStr);
-      const normalizedLoginResult = this.normalizeClienteResult(loginResult);
-      console.log(`[buscarClienteAuto] Tentou como login, encontrado: ${normalizedLoginResult?.data?.length || 0} registros`);
-      if (normalizedLoginResult.data && normalizedLoginResult.data.length > 0) {
-        return normalizedLoginResult;
+      console.log(`[buscarClienteAuto] Tentou como login, encontrado: ${loginResult?.data?.length || 0} registros`);
+      if (loginResult.data && loginResult.data.length > 0) {
+        return loginResult;
       }
     } catch (err) {
       console.log(`[buscarClienteAuto] Erro ao tentar login: ${err.message}`);
@@ -1465,10 +1436,9 @@ class MkAuthAgentService {
       const numId = parseInt(identifierStr);
       console.log(`[buscarClienteAuto] Tentando como ID: ${numId}`);
       const idResult = await this.execute(tenant, 'buscarCliente', numId || identifierStr);
-      const normalizedIdResult = this.normalizeClienteResult(idResult);
-      console.log(`[buscarClienteAuto] Tentou como ID, encontrado: ${normalizedIdResult?.data?.length || 0} registros`);
-      if (normalizedIdResult.data && normalizedIdResult.data.length > 0) {
-        return normalizedIdResult;
+      console.log(`[buscarClienteAuto] Tentou como ID, encontrado: ${idResult?.data?.length || 0} registros`);
+      if (idResult.data && idResult.data.length > 0) {
+        return idResult;
       }
     } catch (err) {
       console.log(`[buscarClienteAuto] Erro ao tentar ID: ${err.message}`);
