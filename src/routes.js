@@ -1465,7 +1465,7 @@ routes.get('/cto', CTOController.show);             // CTO específica
  * Retorna faturas com formato compatível com app (com boleto, pix, etc)
  * Formato: {observacao, rem_obs, invoices: {pending_invoices: [...], paid_invoices: [...]}}
  */
-routes.get('/invoices/:client_id', async (req, res) => {
+routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (req, res) => {
   const clientIdOrLogin = req.params.client_id;
   const MkAuthAgentService = require('./app/services/MkAuthAgentService');
   const crypto = require('crypto');
