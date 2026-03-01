@@ -514,10 +514,8 @@ class RequestController {
         console.log('   - Nova visita (data + hora):', novaVisita);
         
         const tabela = getTabelaPorTipo(request_type);
-        // 🔧 Atualizar AMBAS as colunas: visita (data+hora) E data_visita (apenas data)
-        // Isso garante que não seja modificada por triggers/constraints do banco
-        const sql = `UPDATE ${tabela} SET visita = ?, data_visita = ? WHERE id = ?`;
-        const valores = [novaVisita, dataFormatada, chamadoId];
+        const sql = `UPDATE ${tabela} SET visita = ? WHERE id = ?`;
+        const valores = [novaVisita, chamadoId];
         
         console.log('📝 SQL Query:', sql);
         console.log('📊 Parâmetros:', valores);
@@ -528,7 +526,7 @@ class RequestController {
           valores
         );
         
-        console.log('✅ Data de visita atualizada (hora mantida, data_visita sincronizado)!');
+        console.log('✅ Data de visita atualizada (hora mantida)!');
         
         return res.json({
           success: true,
@@ -542,7 +540,7 @@ class RequestController {
       
       // ===== ATUALIZAR APENAS HORA DE VISITA =====
       if (action === 'update_visita_time') {
-        console.log('⏰ Atualizando HORA de visita');
+        console.log('⏰ Atualizando HORA de visita (apenas hora, mantém data original)');
         
         if (!new_visita_time) {
           return res.status(400).json({
@@ -550,19 +548,54 @@ class RequestController {
           });
         }
         
-        // 🔧 Extrair apenas a DATA de new_visita_time para manter sincronizado
-        // Formato esperado: "YYYY-MM-DD HH:MM:SS"
-        let dataVisita = new_visita_time;
-        if (new_visita_time.includes(' ')) {
-          dataVisita = new_visita_time.split(' ')[0]; // Extrai "YYYY-MM-DD"
+        console.log('   - new_visita_time recebido:', new_visita_time);
+        
+        // 🔧 SOLUÇÃO: Buscar visita atual para pegar data original do banco
+        // Assim ignora qualquer data errada enviada pelo app
+        const queryDef = MkAuthAgentService.queries.chamadoPorId(chamadoId);
+        const chamadoAtual = await MkAuthAgentService.sendToAgent(
+          tenant,
+          queryDef.sql,
+          queryDef.params
+        );
+        
+        if (!chamadoAtual?.data || chamadoAtual.data.length === 0) {
+          return res.status(404).json({
+            error: 'Chamado não encontrado'
+          });
         }
-        console.log('   - Data extraída para sincronismo:', dataVisita);
+        
+        const visitaAtual = chamadoAtual.data[0].visita;
+        console.log('   - visita atual no banco:', visitaAtual);
+        
+        // Extrai DATA original do banco (ignora data enviada pelo app)
+        let dataOriginal = null;
+        if (visitaAtual) {
+          const visitaDate = new Date(visitaAtual);
+          const yyyy = visitaDate.getFullYear();
+          const mm = String(visitaDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(visitaDate.getDate()).padStart(2, '0');
+          dataOriginal = `${yyyy}-${mm}-${dd}`;
+        }
+        console.log('   - data original extraída:', dataOriginal);
+        
+        // Extrai HORA nova enviada pelo app (ignora a data)
+        let horaEnviada = '00:00:00';
+        if (new_visita_time.includes(' ')) {
+          horaEnviada = new_visita_time.split(' ')[1]; // Pega a parte da hora
+        } else {
+          // Se só tem hora no formato HH:MM ou HH:MM:SS
+          horaEnviada = new_visita_time;
+        }
+        console.log('   - hora enviada extraída:', horaEnviada);
+        
+        // Combina data original + hora nova
+        const novaVisita = `${dataOriginal} ${horaEnviada}`;
+        console.log('   - nova visita combinada:', novaVisita);
         
         const tabela = getTabelaPorTipo(request_type);
-        // 🔧 Atualizar AMBAS as colunas: visita (data+hora) E data_visita (apenas data)
-        // Isso garante que não seja modificada por triggers/constraints do banco
-        const sql = `UPDATE ${tabela} SET visita = ?, data_visita = ? WHERE id = ?`;
-        const valores = [new_visita_time, dataVisita, chamadoId];
+        const sql = `UPDATE ${tabela} SET visita = ? WHERE id = ?`;
+        const valores = [novaVisita, chamadoId];
         
         console.log('📝 SQL Query:', sql);
         console.log('📊 Parâmetros:', valores);
@@ -573,14 +606,15 @@ class RequestController {
           valores
         );
         
-        console.log('✅ Hora de visita atualizada! (data_visita sincronizado)');
+        console.log('✅ Hora de visita atualizada (data original mantida)!');
         
         return res.json({
           success: true,
-          message: `Hora de visita do chamado ${chamadoId} atualizada para ${new_visita_time}`,
+          message: `Hora de visita do chamado ${chamadoId} atualizada para ${horaEnviada} (data ${dataOriginal} mantida)`,
           chamado_id: chamadoId,
-          new_visita_time,
-          data_visita: dataVisita
+          new_visita_time: novaVisita,
+          data_original_mantida: dataOriginal,
+          hora_atualizada: horaEnviada
         });
       }
       

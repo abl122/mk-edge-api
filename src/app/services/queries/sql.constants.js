@@ -68,10 +68,10 @@ const SQL_QUERIES = {
   },
 
   LISTAR_CHAMADOS: {
-    template: `SELECT s.id, s.chamado, s.visita, s.data_abertura, s.data_visita, s.fechamento, 
+    template: `SELECT s.id, s.chamado, s.visita, s.data_abertura, DATE(s.visita) as data_visita, s.fechamento, 
                      s.nome, s.login, s.tecnico, s.status, s.assunto, s.prioridade 
               FROM sis_suporte s 
-              WHERE s.data_visita = :date 
+              WHERE DATE(s.visita) = :date 
               {{#if login}} AND s.login = :login {{/if}}
               {{#if tecnico}} AND (s.tecnico = :tecnico OR s.tecnico IS NULL OR s.tecnico = 0) {{/if}}
               {{#if isAdmin === false}} AND (s.tecnico = :tecnico OR s.tecnico IS NULL OR s.tecnico = 0) {{/if}}
@@ -80,18 +80,18 @@ const SQL_QUERIES = {
   },
 
   CHAMADOS_ATRASADOS: {
-    template: `SELECT s.id, s.chamado, s.visita, s.data_abertura, s.data_visita, s.nome, 
+    template: `SELECT s.id, s.chamado, s.visita, s.data_abertura, DATE(s.visita) as data_visita, s.nome, 
                      s.login, s.tecnico, s.status, s.assunto, s.prioridade 
               FROM sis_suporte s 
-              WHERE s.status = 'aberto' AND s.data_visita < CURDATE() 
-              ORDER BY s.data_visita {{sortMode}}`,
+              WHERE s.status = 'aberto' AND DATE(s.visita) < CURDATE() 
+              ORDER BY s.visita {{sortMode}}`,
     description: 'Chamados em atraso (não fechados e data < hoje)'
   },
 
   CHAMADOS_HOJE: {
-    template: `SELECT id, chamado, visita, data_visita, nome, status, assunto, prioridade 
+    template: `SELECT id, chamado, visita, DATE(visita) as data_visita, nome, status, assunto, prioridade 
                FROM sis_suporte 
-               WHERE data_visita = CURDATE() 
+               WHERE DATE(visita) = CURDATE() 
                ORDER BY visita`,
     description: 'Chamados agendados para hoje'
   },
@@ -127,8 +127,8 @@ const SQL_QUERIES = {
                  COUNT(*) as total,
                  SUM(CASE WHEN status = 'aberto' THEN 1 ELSE 0 END) as ongoing,
                  SUM(CASE WHEN status = 'fechado' THEN 1 ELSE 0 END) as completed,
-                 SUM(CASE WHEN status = 'aberto' AND data_visita < CURDATE() THEN 1 ELSE 0 END) as overdue,
-                 SUM(CASE WHEN data_visita = CURDATE() THEN 1 ELSE 0 END) as today
+                 SUM(CASE WHEN status = 'aberto' AND DATE(visita) < CURDATE() THEN 1 ELSE 0 END) as overdue,
+                 SUM(CASE WHEN DATE(visita) = CURDATE() THEN 1 ELSE 0 END) as today
                FROM sis_suporte`,
     description: 'Estatísticas de chamados para dashboard'
   }
