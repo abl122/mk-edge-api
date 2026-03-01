@@ -514,8 +514,10 @@ class RequestController {
         console.log('   - Nova visita (data + hora):', novaVisita);
         
         const tabela = getTabelaPorTipo(request_type);
-        const sql = `UPDATE ${tabela} SET visita = ? WHERE id = ?`;
-        const valores = [novaVisita, chamadoId];
+        // 🔧 Atualizar AMBAS as colunas: visita (data+hora) E data_visita (apenas data)
+        // Isso garante que não seja modificada por triggers/constraints do banco
+        const sql = `UPDATE ${tabela} SET visita = ?, data_visita = ? WHERE id = ?`;
+        const valores = [novaVisita, dataFormatada, chamadoId];
         
         console.log('📝 SQL Query:', sql);
         console.log('📊 Parâmetros:', valores);
@@ -526,7 +528,7 @@ class RequestController {
           valores
         );
         
-        console.log('✅ Data de visita atualizada (hora mantida)!');
+        console.log('✅ Data de visita atualizada (hora mantida, data_visita sincronizado)!');
         
         return res.json({
           success: true,
@@ -548,9 +550,19 @@ class RequestController {
           });
         }
         
+        // 🔧 Extrair apenas a DATA de new_visita_time para manter sincronizado
+        // Formato esperado: "YYYY-MM-DD HH:MM:SS"
+        let dataVisita = new_visita_time;
+        if (new_visita_time.includes(' ')) {
+          dataVisita = new_visita_time.split(' ')[0]; // Extrai "YYYY-MM-DD"
+        }
+        console.log('   - Data extraída para sincronismo:', dataVisita);
+        
         const tabela = getTabelaPorTipo(request_type);
-        const sql = `UPDATE ${tabela} SET visita = ? WHERE id = ?`;
-        const valores = [new_visita_time, chamadoId];
+        // 🔧 Atualizar AMBAS as colunas: visita (data+hora) E data_visita (apenas data)
+        // Isso garante que não seja modificada por triggers/constraints do banco
+        const sql = `UPDATE ${tabela} SET visita = ?, data_visita = ? WHERE id = ?`;
+        const valores = [new_visita_time, dataVisita, chamadoId];
         
         console.log('📝 SQL Query:', sql);
         console.log('📊 Parâmetros:', valores);
@@ -561,13 +573,14 @@ class RequestController {
           valores
         );
         
-        console.log('✅ Hora de visita atualizada!');
+        console.log('✅ Hora de visita atualizada! (data_visita sincronizado)');
         
         return res.json({
           success: true,
           message: `Hora de visita do chamado ${chamadoId} atualizada para ${new_visita_time}`,
           chamado_id: chamadoId,
-          new_visita_time
+          new_visita_time,
+          data_visita: dataVisita
         });
       }
       
