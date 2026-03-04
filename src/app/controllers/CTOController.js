@@ -82,6 +82,7 @@ class CTOController {
             nome: cto.nome,
             latitude: parseFloat(cto.latitude),
             longitude: parseFloat(cto.longitude),
+            capacidade: parseInt(cto.capacidade) || 0,
             connection_amount: clientesAtivos.length,
             distance: cto.distance ? parseFloat(cto.distance) : 0
           });
@@ -93,6 +94,7 @@ class CTOController {
             nome: cto.nome,
             latitude: parseFloat(cto.latitude),
             longitude: parseFloat(cto.longitude),
+            capacidade: parseInt(cto.capacidade) || 0,
             connection_amount: 0,
             distance: cto.distance ? parseFloat(cto.distance) : 0
           });

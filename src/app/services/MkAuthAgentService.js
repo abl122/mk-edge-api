@@ -518,7 +518,7 @@ class MkAuthAgentService {
      * Busca CTOs próximas (caixas hermétcas)
      */
     ctoPorCoordenadas: (lat, lng, raio = 0.35) => ({
-      sql: `SELECT id, nome, latitude, longitude,
+      sql: `SELECT id, nome, latitude, longitude, capacidade,
                    (6371 * acos(
                      cos(radians(?)) * cos(radians(latitude)) *
                      cos(radians(longitude) - radians(?)) +
