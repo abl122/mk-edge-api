@@ -133,6 +133,7 @@ class RequestController {
           senha: chamado.senha,
           plano: chamado.plano,
           tipo: chamado.tipo,
+          equipamento: chamado.equipamento,
           ip: chamado.ip,
           status: chamado.status,
           prioridade: chamado.prioridade,

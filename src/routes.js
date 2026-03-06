@@ -1751,6 +1751,30 @@ routes.get('/requests/history', async (req, res) => {
       }
     });
     
+    // Buscar mensagens para todos os chamados (abertos e fechados)
+    const todasRequisicoes = [...openedRequests, ...closedRequests];
+    
+    for (let ticket of todasRequisicoes) {
+      try {
+        const chamadoCompleto = await MkAuthAgentService.execute(
+          req.tenant,
+          'chamadoCompletoComMensagens',
+          ticket.id
+        );
+        
+        console.log('[RequestsHistory] Chamado', ticket.id, '- Retornou:', chamadoCompleto ? 'sim' : 'não', 'Mensagens:', chamadoCompleto?.[0]?.mensagens?.length || 0);
+        
+        if (chamadoCompleto && chamadoCompleto[0] && chamadoCompleto[0].mensagens && chamadoCompleto[0].mensagens.length > 0) {
+          // As mensagens vêm em ordem DESC, então [0] é a última (mais recente)
+          const ultimaMensagem = chamadoCompleto[0].mensagens[0];
+          ticket.mensagens = chamadoCompleto[0].mensagens;
+          ticket.atendente_ultima_nota = ultimaMensagem.atendente || null;
+        }
+      } catch (error) {
+        console.warn('[RequestsHistory] Erro ao buscar mensagens do chamado', ticket.id, error.message);
+      }
+    }
+    
     return res.json({
       opened_requests: openedRequests,
       closed_requests: closedRequests
