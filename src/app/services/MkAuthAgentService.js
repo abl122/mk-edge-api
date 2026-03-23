@@ -335,6 +335,8 @@ class MkAuthAgentService {
     }),
     /**
      * Consumo de dados por período (radacct)
+     * Inclui sessões que tiveram sobreposição com o período,
+     * mesmo que iniciadas antes do início do período.
      */
     consumoPorPeriodo: (login, dataInicio, dataFim) => ({
       sql: `SELECT username,
@@ -344,7 +346,8 @@ class MkAuthAgentService {
                    SUM(acctinputoctets + acctoutputoctets) as total
             FROM radacct
             WHERE username = :login
-              AND acctstarttime BETWEEN :inicio AND :fim
+              AND acctstarttime < :fim
+              AND (acctstoptime > :inicio OR acctstoptime IS NULL)
             GROUP BY username, DATE(acctstarttime)
             ORDER BY data ASC`,
       params: { login, inicio: dataInicio, fim: dataFim }
@@ -352,25 +355,54 @@ class MkAuthAgentService {
 
     /**
      * Consumo agregado em um período (total em bytes)
+     * Considera sessões que se sobrepõem ao período, com prorata proporcional
+     * ao tempo de sobreposição. Corrige sessões que cruzam virada de mês.
      */
     consumoAgregadoPeriodo: (login, dataInicio, dataFim) => {
       return {
-        sql: `SELECT SUM(acctinputoctets + acctoutputoctets) as total
+        sql: `SELECT SUM(
+                (acctinputoctets + acctoutputoctets) *
+                CASE
+                  WHEN acctsessiontime IS NULL OR acctsessiontime = 0 THEN 1
+                  ELSE
+                    GREATEST(
+                      TIMESTAMPDIFF(SECOND,
+                        GREATEST(acctstarttime, :inicio),
+                        LEAST(COALESCE(acctstoptime, NOW()), :fim)
+                      ), 0
+                    ) / acctsessiontime
+                END
+              ) as total
               FROM radacct
               WHERE username = :login
-                AND acctstarttime BETWEEN :inicio AND :fim`,
+                AND acctstarttime < :fim
+                AND (acctstoptime > :inicio OR acctstoptime IS NULL)`,
         params: { login, inicio: dataInicio, fim: dataFim }
       };
     },
     
     /**
      * Consumo total do mês atual
+     * Considera sessões que se sobrepõem ao mês corrente, com prorata proporcional.
      */
     consumoMesAtual: (login) => ({
-      sql: `SELECT SUM(acctinputoctets + acctoutputoctets) as consumo_total
+      sql: `SELECT SUM(
+              (acctinputoctets + acctoutputoctets) *
+              CASE
+                WHEN acctsessiontime IS NULL OR acctsessiontime = 0 THEN 1
+                ELSE
+                  GREATEST(
+                    TIMESTAMPDIFF(SECOND,
+                      GREATEST(acctstarttime, DATE_FORMAT(NOW(), '%Y-%m-01 00:00:00')),
+                      LEAST(COALESCE(acctstoptime, NOW()), NOW())
+                    ), 0
+                  ) / acctsessiontime
+              END
+            ) as consumo_total
             FROM radacct
             WHERE username = :login
-              AND acctstarttime >= DATE_FORMAT(NOW(), '%Y-%m-01')`,
+              AND acctstarttime < NOW()
+              AND (acctstoptime >= DATE_FORMAT(NOW(), '%Y-%m-01') OR acctstoptime IS NULL)`,
       params: { login }
     }),
     
