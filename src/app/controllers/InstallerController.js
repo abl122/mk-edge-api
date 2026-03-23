@@ -159,19 +159,16 @@ download_file() {
 
 check_health() {
   if curl -fsS --connect-timeout 5 --max-time 10 "\$API_URL/health" | grep -q "ok"; then
-    echo "ok"
     return 0
   fi
 
   if [ -n "\$API_RESOLVE_IP" ]; then
     warning "Healthcheck público falhou. Tentando rota interna \$API_RESOLVE_IP para \$API_HOSTNAME..."
     if curl -fsS --connect-timeout 5 --max-time 10 --resolve "\$API_HOSTNAME:443:\$API_RESOLVE_IP" "\$API_URL/health" | grep -q "ok"; then
-      echo "ok"
       return 0
     fi
   fi
 
-  echo "fail"
   return 1
 }
 
@@ -314,9 +311,7 @@ success "Permissões definidas"
 # Passo 4: Testar conexão com API
 log "Passo 4: Testando conexão com API MK-Edge..."
 
-HEALTH_CHECK=\$(check_health)
-
-if [ "\$HEALTH_CHECK" = "ok" ]; then
+if check_health; then
   success "API MK-Edge está respondendo"
 else
   warning "API MK-Edge não respondeu. Verifique conectividade"
