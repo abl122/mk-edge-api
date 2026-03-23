@@ -3,9 +3,8 @@
  * Gera instalador personalizado para cada cliente
  */
 
-const fs = require('fs');
-const path = require('path');
 const logger = require('../../logger');
+const Tenant = require('../schemas/Tenant');
 
 class InstallerController {
   /**
@@ -15,7 +14,6 @@ class InstallerController {
   static async getPersonalizedScript(req, res) {
     try {
       const { tenantId } = req.params;
-      const { token } = req.query;
 
       if (!tenantId) {
         return res.status(400).json({
@@ -24,15 +22,27 @@ class InstallerController {
         });
       }
 
-      // TODO: Validar token se fornecido
-      // TODO: Buscar tenant do MongoDB para obter dados reais
+      const tenant = await Tenant.findById(tenantId).lean();
+      if (!tenant) {
+        return res.status(404).json({
+          success: false,
+          message: 'Tenant não encontrado'
+        });
+      }
 
-      // Mock de dados do tenant (em produção, buscar do BD)
+      const tokenAgente = tenant?.agente?.token || req.query.token;
+      if (!tokenAgente) {
+        return res.status(400).json({
+          success: false,
+          message: 'Token do agente não configurado para este tenant'
+        });
+      }
+
       const tenantData = {
         tenant_id: tenantId,
-        token_agente: req.query.token || 'token-do-tenant-aqui',
-        email: req.query.email || 'admin@tenant.com',
-        domain: req.query.domain || 'tenant-domain'
+        token_agente: tokenAgente,
+        email: req.query.email || tenant?.provedor?.email || 'admin@tenant.com',
+        domain: req.query.domain || tenant?.provedor?.dominio || ''
       };
 
       // Gerar script personalizado
@@ -56,6 +66,7 @@ class InstallerController {
    */
   static generateInstallerScript(tenantData) {
     const { tenant_id, token_agente, email } = tenantData;
+    const installerBaseUrl = (process.env.INSTALLER_BASE_URL || process.env.PUBLIC_URL || 'https://mk-edge.com.br').replace(/\/$/, '');
 
     return `#!/bin/bash
 
@@ -80,7 +91,8 @@ NC='\\033[0m' # No Color
 # Configurações
 INSTALL_DIR="/opt/mk-auth/admin/addons/mk-edge"
 BACKUP_DIR="/opt/mk-auth/admin/addons/mk-edge.backup.$(date +%s)"
-API_URL="http://localhost:3335"
+API_URL="${installerBaseUrl}"
+API_AGENT_URL="${installerBaseUrl}/mk-edge/api.php"
 TENANT_ID="${tenant_id}"
 TOKEN_AGENTE="${token_agente}"
 EMAIL="${email}"
@@ -127,6 +139,7 @@ log "Iniciando instalação do MK-Edge Agente..."
 log "Tenant ID: \$TENANT_ID"
 log "Email: \$EMAIL"
 log "API URL: \$API_URL"
+log "Agent Source URL: \$API_AGENT_URL"
 
 # Passo 1: Criar diretório
 log "Passo 1: Criando diretório de instalação..."
@@ -145,10 +158,16 @@ fi
 log "Passo 2: Baixando arquivos do agente..."
 
 # Download api.php
-curl -s -o "\$INSTALL_DIR/api.php" "http://localhost:3335/api.php" || {
+curl -fsSL --connect-timeout 10 --max-time 30 -o "\$INSTALL_DIR/api.php" "\$API_AGENT_URL" || {
   error "Falha ao baixar api.php"
   exit 1
 }
+
+if [ ! -s "\$INSTALL_DIR/api.php" ]; then
+  error "api.php foi baixado vazio"
+  exit 1
+fi
+
 success "api.php baixado"
 
 # Download config.php (vai gerar personalizado)
@@ -168,7 +187,7 @@ define('MKEDGE_TENANT_ID', '${tenant_id}');
 define('MKEDGE_API_TOKEN', '${token_agente}');
 
 // URL da API MK-Edge
-define('MKEDGE_API_URL', 'http://localhost:3335');
+define('MKEDGE_API_URL', '${installerBaseUrl}/api');
 
 // Email do Tenant
 define('MKEDGE_EMAIL', '${email}');
@@ -219,7 +238,7 @@ success "Permissões definidas"
 # Passo 4: Testar conexão com API
 log "Passo 4: Testando conexão com API MK-Edge..."
 
-HEALTH_CHECK=\$(curl -s \$API_URL/health | grep -q "ok" && echo "ok" || echo "fail")
+HEALTH_CHECK=\$(curl -fsS --connect-timeout 5 --max-time 10 "\$API_URL/health" | grep -q "ok" && echo "ok" || echo "fail")
 
 if [ "\$HEALTH_CHECK" = "ok" ]; then
   success "API MK-Edge está respondendo"
@@ -275,7 +294,7 @@ echo -e "\${BLUE}📖 PRÓXIMOS PASSOS:\${NC}"
 echo "  1. Configurar servidor web (Nginx/Apache)"
 echo "  2. Testar acesso: curl http://localhost/mk-edge/api.php"
 echo "  3. Verificar logs: tail -f \$LOG_FILE"
-echo "  4. Ativar no portal: http://localhost:3335/portal.html"
+echo "  4. Ativar no portal: ${installerBaseUrl}/portal.html"
 echo ""
 
 echo -e "\${YELLOW}⚠️  IMPORTANTE:\${NC}"
@@ -306,11 +325,27 @@ exit 0
         });
       }
 
-      // TODO: Buscar tenant do MongoDB
+      const tenant = await Tenant.findById(tenantId).lean();
+      if (!tenant) {
+        return res.status(404).json({
+          success: false,
+          message: 'Tenant não encontrado'
+        });
+      }
+
+      const tokenAgente = tenant?.agente?.token || req.query.token;
+      if (!tokenAgente) {
+        return res.status(400).json({
+          success: false,
+          message: 'Token do agente não configurado para este tenant'
+        });
+      }
+
       const tenantData = {
         tenant_id: tenantId,
-        token_agente: req.query.token || 'token-do-tenant',
-        email: req.query.email || 'admin@tenant.com'
+        token_agente: tokenAgente,
+        email: req.query.email || tenant?.provedor?.email || 'admin@tenant.com',
+        domain: req.query.domain || tenant?.provedor?.dominio || ''
       };
 
       const script = this.generateInstallerScript(tenantData);
