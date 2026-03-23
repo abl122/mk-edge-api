@@ -143,6 +143,65 @@ routes.get('/public/plans', async (req, res) => {
 });
 
 /**
+ * Listar provedores públicos (SEM /api prefix - para app cliente)
+ * GET /public/providers
+ * Retorna formato compatível com providers.config.json: { providers: [...] }
+ */
+const listPublicProviders = async (req, res) => {
+  try {
+    const Tenant = require('./app/schemas/Tenant');
+
+    const tenants = await Tenant.find({
+      'provedor.ativo': { $ne: false },
+      'assinatura.ativa': true,
+      'agente.ativo': true,
+      'agente.url': { $exists: true, $nin: [null, ''] },
+      'agente.token': { $exists: true, $nin: [null, ''] }
+    })
+      .select('_id provedor agente assinatura')
+      .sort({ 'provedor.nome': 1 })
+      .lean();
+
+    const providers = tenants.map((tenant) => {
+      const primaryColor = tenant?.provedor?.cores?.primaria;
+
+      return {
+        id: String(tenant._id),
+        name: String(tenant?.provedor?.nome || 'Provedor'),
+        agentUrl: String(tenant?.agente?.url || ''),
+        apiKey: String(tenant?.agente?.token || ''),
+        logo: tenant?.provedor?.logo || null,
+        primaryColor: primaryColor ? String(primaryColor) : 'verde',
+        supportEmail: tenant?.provedor?.email ? String(tenant.provedor.email) : 'suporte@updata.com.br',
+        supportPhone: tenant?.provedor?.telefone ? String(tenant.provedor.telefone) : '(92) 99248-3445',
+        active: true
+      };
+    });
+
+    return res.json({
+      success: true,
+      providers,
+      total: providers.length
+    });
+  } catch (error) {
+    console.error('❌ Erro ao listar provedores públicos:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao listar provedores',
+      providers: []
+    });
+  }
+};
+
+routes.get('/public/providers', listPublicProviders);
+
+/**
+ * Listar provedores públicos (com /api prefix)
+ * GET /api/public/providers
+ */
+routes.get('/api/public/providers', listPublicProviders);
+
+/**
  * Info da API
  * GET /api/info ou /api/status
  */
