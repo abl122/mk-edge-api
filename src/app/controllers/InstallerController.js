@@ -67,7 +67,7 @@ class InstallerController {
   static generateInstallerScript(tenantData) {
     const { tenant_id, token_agente, email } = tenantData;
     const installerBaseUrl = (process.env.INSTALLER_BASE_URL || process.env.PUBLIC_URL || 'https://mk-edge.com.br').replace(/\/$/, '');
-    const installerInternalIp = (process.env.INSTALLER_INTERNAL_IP || '').trim();
+    const installerInternalIp = (process.env.INSTALLER_INTERNAL_IP || '172.31.255.4').trim();
     const installerHostname = new URL(installerBaseUrl).hostname;
 
     return `#!/bin/bash
