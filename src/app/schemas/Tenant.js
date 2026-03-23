@@ -23,6 +23,10 @@ const TenantSchema = new mongoose.Schema({
     dominio: String,
     email: String,
     telefone: String,
+    logo: String,
+    cores: {
+      primaria: String,
+    },
     admin_name: String, // Nome do responsável pelo provedor
     ativo: {
       type: Boolean,
