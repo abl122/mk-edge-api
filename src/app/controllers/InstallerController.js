@@ -67,6 +67,8 @@ class InstallerController {
   static generateInstallerScript(tenantData) {
     const { tenant_id, token_agente, email } = tenantData;
     const installerBaseUrl = (process.env.INSTALLER_BASE_URL || process.env.PUBLIC_URL || 'https://mk-edge.com.br').replace(/\/$/, '');
+    const installerInternalIp = (process.env.INSTALLER_INTERNAL_IP || '').trim();
+    const installerHostname = new URL(installerBaseUrl).hostname;
 
     return `#!/bin/bash
 
@@ -89,10 +91,13 @@ BLUE='\\033[0;34m'
 NC='\\033[0m' # No Color
 
 # Configurações
+ADDONS_DIR="/opt/mk-auth/admin/addons"
 INSTALL_DIR="/opt/mk-auth/admin/addons/mk-edge"
 BACKUP_DIR="/opt/mk-auth/admin/addons/mk-edge.backup.$(date +%s)"
 API_URL="${installerBaseUrl}"
 API_AGENT_URL="${installerBaseUrl}/mk-edge/api.php"
+API_HOSTNAME="${installerHostname}"
+API_RESOLVE_IP="${installerInternalIp}"
 TENANT_ID="${tenant_id}"
 TOKEN_AGENTE="${token_agente}"
 EMAIL="${email}"
@@ -115,6 +120,51 @@ error() {
 
 warning() {
   echo -e "\${YELLOW}⚠️  \$1\${NC}" | tee -a \$LOG_FILE
+}
+
+build_curl_args() {
+  local target_url="\$1"
+
+  if [ -n "\$API_RESOLVE_IP" ]; then
+    echo "--connect-timeout 10 --max-time 30 --resolve \$API_HOSTNAME:443:\$API_RESOLVE_IP \"\$target_url\""
+  else
+    echo "--connect-timeout 10 --max-time 30 \"\$target_url\""
+  fi
+}
+
+download_file() {
+  local target_file="\$1"
+  local target_url="\$2"
+
+  if curl -fsSL --connect-timeout 10 --max-time 30 -o "\$target_file" "\$target_url"; then
+    return 0
+  fi
+
+  if [ -n "\$API_RESOLVE_IP" ]; then
+    warning "Falha no acesso público. Tentando rota interna \$API_RESOLVE_IP para \$API_HOSTNAME..."
+    curl -fsSL --connect-timeout 10 --max-time 30 --resolve "\$API_HOSTNAME:443:\$API_RESOLVE_IP" -o "\$target_file" "\$target_url"
+    return \$?
+  fi
+
+  return 1
+}
+
+check_health() {
+  if curl -fsS --connect-timeout 5 --max-time 10 "\$API_URL/health" | grep -q "ok"; then
+    echo "ok"
+    return 0
+  fi
+
+  if [ -n "\$API_RESOLVE_IP" ]; then
+    warning "Healthcheck público falhou. Tentando rota interna \$API_RESOLVE_IP para \$API_HOSTNAME..."
+    if curl -fsS --connect-timeout 5 --max-time 10 --resolve "\$API_HOSTNAME:443:\$API_RESOLVE_IP" "\$API_URL/health" | grep -q "ok"; then
+      echo "ok"
+      return 0
+    fi
+  fi
+
+  echo "fail"
+  return 1
 }
 
 # Verificar se é root
@@ -140,25 +190,43 @@ log "Tenant ID: \$TENANT_ID"
 log "Email: \$EMAIL"
 log "API URL: \$API_URL"
 log "Agent Source URL: \$API_AGENT_URL"
+if [ -n "\$API_RESOLVE_IP" ]; then
+  log "Rota interna habilitada: \$API_HOSTNAME -> \$API_RESOLVE_IP"
+fi
 
 # Passo 1: Criar diretório
 log "Passo 1: Criando diretório de instalação..."
 
+# Garante a estrutura base antes de criar o addon
+mkdir -p "\$ADDONS_DIR"
+
 if [ -d "\$INSTALL_DIR" ]; then
   warning "Diretório \$INSTALL_DIR já existe. Fazendo backup..."
-  mkdir -p \$BACKUP_DIR
-  cp -r \$INSTALL_DIR/* \$BACKUP_DIR/
+  mkdir -p "\$BACKUP_DIR"
+
+  # Se o diretório estiver vazio, evita falha por glob sem match
+  if [ -n "\$(ls -A \"\$INSTALL_DIR\" 2>/dev/null)" ]; then
+    cp -a "\$INSTALL_DIR/." "\$BACKUP_DIR/"
+  else
+    warning "Diretório existente está vazio. Backup não necessário"
+  fi
+
   success "Backup criado em: \$BACKUP_DIR"
 else
-  mkdir -p \$INSTALL_DIR
+  mkdir -p "\$INSTALL_DIR"
   success "Diretório criado: \$INSTALL_DIR"
+fi
+
+if [ ! -d "\$INSTALL_DIR" ]; then
+  error "Falha ao criar diretório de instalação: \$INSTALL_DIR"
+  exit 1
 fi
 
 # Passo 2: Download dos arquivos
 log "Passo 2: Baixando arquivos do agente..."
 
 # Download api.php
-curl -fsSL --connect-timeout 10 --max-time 30 -o "\$INSTALL_DIR/api.php" "\$API_AGENT_URL" || {
+download_file "\$INSTALL_DIR/api.php" "\$API_AGENT_URL" || {
   error "Falha ao baixar api.php"
   exit 1
 }
@@ -238,7 +306,7 @@ success "Permissões definidas"
 # Passo 4: Testar conexão com API
 log "Passo 4: Testando conexão com API MK-Edge..."
 
-HEALTH_CHECK=\$(curl -fsS --connect-timeout 5 --max-time 10 "\$API_URL/health" | grep -q "ok" && echo "ok" || echo "fail")
+HEALTH_CHECK=\$(check_health)
 
 if [ "\$HEALTH_CHECK" = "ok" ]; then
   success "API MK-Edge está respondendo"
