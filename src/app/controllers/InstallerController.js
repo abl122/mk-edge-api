@@ -135,16 +135,24 @@ build_curl_args() {
 download_file() {
   local target_file="\$1"
   local target_url="\$2"
+  local temp_file="\${target_file}.tmp"
 
-  if curl -fsSL --connect-timeout 10 --max-time 30 -o "\$target_file" "\$target_url"; then
+  rm -f "\$temp_file"
+
+  if curl -fsSL --connect-timeout 10 --max-time 30 -o "\$temp_file" "\$target_url"; then
+    mv "\$temp_file" "\$target_file"
     return 0
   fi
 
   if [ -n "\$API_RESOLVE_IP" ]; then
     warning "Falha no acesso público. Tentando rota interna \$API_RESOLVE_IP para \$API_HOSTNAME..."
-    curl -fsSL --connect-timeout 10 --max-time 30 --resolve "\$API_HOSTNAME:443:\$API_RESOLVE_IP" -o "\$target_file" "\$target_url"
-    return \$?
+    if curl -fsSL --connect-timeout 10 --max-time 30 --resolve "\$API_HOSTNAME:443:\$API_RESOLVE_IP" -o "\$temp_file" "\$target_url"; then
+      mv "\$temp_file" "\$target_file"
+      return 0
+    fi
   fi
+
+  rm -f "\$temp_file"
 
   return 1
 }
