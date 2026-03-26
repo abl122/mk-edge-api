@@ -96,6 +96,32 @@ class SessionController {
           error: 'Login ou senha inválidos'
         });
       }
+
+      // Verifica se o usuário está ativo
+      if (usuario.ativo === 'nao') {
+        logger.warn('[SessionController] Usuário inativo tentou login', {
+          provedor_id: tenant._id,
+          login
+        });
+        return res.status(403).json({
+          error: 'Usuário inativo. Entre em contato com o administrador.'
+        });
+      }
+
+      // Verifica validade da conta
+      if (usuario.validade) {
+        const validade = new Date(usuario.validade);
+        if (!isNaN(validade.getTime()) && validade < new Date()) {
+          logger.warn('[SessionController] Conta expirada tentou login', {
+            provedor_id: tenant._id,
+            login,
+            validade: usuario.validade
+          });
+          return res.status(403).json({
+            error: 'Acesso expirado. Entre em contato com o administrador.'
+          });
+        }
+      }
       
       // Busca funcionário (sis_func) por usuário e por email (compatível com backend antigo)
       let funcionario = null;
@@ -107,6 +133,28 @@ class SessionController {
         );
         funcionario = funcByEmail?.data?.[0] || null;
       }
+
+      // Busca permissões do usuário na sis_perm
+      let permissoes = [];
+      try {
+        const permResult = await MkAuthAgentService.sendToAgent(
+          tenant,
+          `SELECT nome FROM sis_perm WHERE usuario = :login AND permissao = 'sim'`,
+          { login }
+        );
+        if (permResult.success && Array.isArray(permResult.data)) {
+          permissoes = permResult.data.map(p => p.nome).filter(Boolean);
+        }
+        logger.info('[SessionController] Permissões carregadas', {
+          login,
+          total: permissoes.length
+        });
+      } catch (permError) {
+        logger.warn('[SessionController] Erro ao buscar sis_perm, usando sem permissões granulares', {
+          login,
+          error: permError.message
+        });
+      }
       
       const isAdmin = (usuario.cli_grupos || '').includes('full_clientes');
       const token = Buffer.from(`${login}:${Date.now()}`).toString('base64');
@@ -114,17 +162,20 @@ class SessionController {
       
       logger.info('[SessionController] Login realizado com sucesso', {
         provedor_id: tenant._id,
-        login
+        login,
+        isAdmin,
+        totalPermissoes: permissoes.length
       });
       
-      // Resposta exatamente como o backend antigo espera
+      // Resposta com permissões granulares do sis_perm
       return res.json({
         user: {
           idacesso,
           nome: usuario.nome,
           employee_id: funcionario ? funcionario.id : null,
           isAdmin,
-          tenant_id: tenant._id
+          tenant_id: tenant._id,
+          permissoes
         },
         token
       });
