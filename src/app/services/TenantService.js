@@ -277,7 +277,6 @@ class TenantService {
       // Se foi enviada uma nova senha, atualizar o usuário do portal
       if (data.senha_portal && data.senha_portal.trim()) {
         const User = mongoose.model('User');
-        const bcrypt = require('bcryptjs');
         
         logger.info('🔐 Atualizando senha do usuário portal', {
           tenant_id: tenantId,
@@ -291,9 +290,8 @@ class TenantService {
         });
 
         if (portalUser) {
-          // Atualizar senha existente
-          const hashedPassword = await bcrypt.hash(data.senha_portal, 10);
-          portalUser.senha = hashedPassword;
+          // Atualizar senha em texto puro para hash único no pre-save do schema
+          portalUser.senha = data.senha_portal;
           await portalUser.save();
           
           logger.info('✅ Senha do usuário portal atualizada', {
@@ -302,16 +300,15 @@ class TenantService {
           });
         } else {
           // Criar usuário portal se não existir
-          const hashedPassword = await bcrypt.hash(data.senha_portal, 10);
           const cnpj = tenant.provedor?.cnpj?.replace(/[^\d]/g, '');
           
           const newPortalUser = await User.create({
             tenant_id: tenantId,
             login: cnpj,
-            senha: hashedPassword,
+            senha: data.senha_portal,
             nome: tenant.provedor?.nome || 'Portal',
             email: tenant.provedor?.email || '',
-            roles: 'portal',
+            roles: ['portal'],
             ativo: true
           });
           

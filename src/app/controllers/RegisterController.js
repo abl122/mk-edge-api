@@ -5,9 +5,67 @@
 
 const TenantService = require('../services/TenantService');
 const User = require('../schemas/User');
-const bcrypt = require('bcryptjs');
 
 class RegisterController {
+  static normalizeBillingCycle(periodo) {
+    const allowedCycles = ['mensal', 'trimestral', 'semestral', 'anual', 'vitalicio'];
+    if (!periodo) return 'mensal';
+    if (allowedCycles.includes(periodo)) return periodo;
+    return 'mensal';
+  }
+
+  static calculateDataFim(dataInicio, periodo) {
+    if (periodo === 'vitalicio') {
+      return null;
+    }
+
+    const data = new Date(dataInicio);
+
+    switch (periodo) {
+      case 'mensal':
+        data.setMonth(data.getMonth() + 1);
+        break;
+      case 'semestral':
+        data.setMonth(data.getMonth() + 6);
+        break;
+      case 'anual':
+        data.setFullYear(data.getFullYear() + 1);
+        break;
+      default:
+        data.setMonth(data.getMonth() + 1);
+        break;
+    }
+
+    return data;
+  }
+
+  static calculateSubscriptionVencimento(dataInicio, cicloCobranca) {
+    const data = new Date(dataInicio);
+
+    switch (cicloCobranca) {
+      case 'mensal':
+        data.setMonth(data.getMonth() + 1);
+        break;
+      case 'trimestral':
+        data.setMonth(data.getMonth() + 3);
+        break;
+      case 'semestral':
+        data.setMonth(data.getMonth() + 6);
+        break;
+      case 'anual':
+        data.setFullYear(data.getFullYear() + 1);
+        break;
+      case 'vitalicio':
+        data.setFullYear(data.getFullYear() + 100);
+        break;
+      default:
+        data.setMonth(data.getMonth() + 1);
+        break;
+    }
+
+    return data;
+  }
+
   /**
    * Registrar novo tenant + admin user
    * POST /register
@@ -26,16 +84,17 @@ class RegisterController {
         admin_email,
         admin_telefone,
         senha,
+        plan_id,
         plan_slug
       } = req.body;
 
       // === VALIDAÇÕES ===
 
       // Campos obrigatórios
-      if (!nome || !cnpj || !email || !admin_email || !senha || !plan_slug) {
+      if (!nome || !cnpj || !email || !admin_email || !senha || (!plan_slug && !plan_id)) {
         return res.status(400).json({
           success: false,
-          message: 'Campos obrigatórios faltando: nome, cnpj, email, admin_email, senha, plan_slug'
+          message: 'Campos obrigatórios faltando: nome, cnpj, email, admin_email, senha, plan_slug/plan_id'
         });
       }
 
@@ -105,6 +164,30 @@ class RegisterController {
         });
       }
 
+      // === BUSCAR PLANO SELECIONADO ===
+
+      const Plan = require('../schemas/Plan');
+      let plan = null;
+
+      if (plan_id) {
+        plan = await Plan.findById(plan_id);
+      }
+
+      if (!plan && plan_slug) {
+        plan = await Plan.findOne({ slug: plan_slug, ativo: true }).sort({ created_at: -1 });
+      }
+
+      if (!plan) {
+        return res.status(404).json({
+          success: false,
+          message: 'Plano selecionado não encontrado'
+        });
+      }
+
+      const dataInicio = new Date();
+      const cicloCobranca = RegisterController.normalizeBillingCycle(plan.periodo);
+      const dataFimAssinatura = RegisterController.calculateDataFim(dataInicio, plan.periodo);
+
       // === CRIAR TENANT ===
 
       const novoTenant = {
@@ -118,12 +201,14 @@ class RegisterController {
           admin_name: admin_name || admin_nome,
           ativo: true
         },
-        plano_atual: plan_slug, // Slug do plano selecionado
+        plano_atual: plan.slug,
         assinatura: {
-          plano: plan_slug, // Usa o plano escolhido
-          ativa: true, // Ativa imediatamente
-          data_inicio: new Date(),
-          data_fim: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // +1 ano
+          plano: plan.slug,
+          plano_nome: plan.nome,
+          valor_mensal: plan.valor_mensal || 0,
+          ativa: true,
+          data_inicio: dataInicio,
+          data_fim: dataFimAssinatura
         },
         agente: {
           url: process.env.AGENTE_URL || 'http://localhost:3001',
@@ -139,15 +224,12 @@ class RegisterController {
 
       // === CRIAR USUÁRIO ADMIN ===
 
-      // Hash da senha
-      const senhaHash = await bcrypt.hash(senha, 10);
-
       const novoUsuario = new User({
         nome: admin_nome,
         login: admin_email,
         email: admin_email,
         telefone: admin_telefone || '',
-        senha: senhaHash,
+        senha: senha,
         roles: ['admin'],
         tenant_id: tenant._id,
         status: 'ativo',
@@ -164,7 +246,7 @@ class RegisterController {
         login: cnpjNormalizado,
         email: email,
         telefone: telefone || '',
-        senha: senhaHash, // Mesma senha do admin inicialmente
+        senha: senha, // Mesma senha do admin inicialmente
         roles: ['portal'],
         tenant_id: tenant._id,
         ativo: true,
@@ -179,27 +261,19 @@ class RegisterController {
       let subscription = null;
       try {
         const Subscription = require('../schemas/Subscription');
-        const Plan = require('../schemas/Plan');
-        
-        // Buscar informações do plano
-        const plan = await Plan.findOne({ slug: plan_slug });
-        
-        if (!plan) {
-          console.warn('Plano não encontrado:', plan_slug);
-          throw new Error('Plano não encontrado');
-        }
-        
-        const dataVencimento = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // +30 dias
+        const dataVencimento = RegisterController.calculateSubscriptionVencimento(dataInicio, cicloCobranca);
         
         const novaSubscription = new Subscription({
           tenant_id: tenant._id,
-          plan_slug: plan_slug,
+          plan_slug: plan.slug,
           plan_name: plan.nome,
           valor_mensal: plan.valor_mensal || 0,
-          status: 'ativa',
-          data_inicio: new Date(),
+          status: plan.dias_trial > 0 ? 'trial' : 'ativa',
+          data_inicio: dataInicio,
           data_vencimento: dataVencimento,
-          ciclo_cobranca: 'mensal',
+          ciclo_cobranca: cicloCobranca,
+          is_trial: plan.dias_trial > 0,
+          dias_trial_restantes: plan.dias_trial || 0,
           renovacao_automatica: true
         });
 

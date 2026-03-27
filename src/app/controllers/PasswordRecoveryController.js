@@ -37,8 +37,7 @@ class PasswordRecoveryController {
       if (!user) {
         logger.warn('Usuário não encontrado para recuperação de senha', {
           identifier,
-          cleanIdentifier,
-          regexPattern
+          cleanIdentifier
         })
         // Não retorna erro específico por segurança
         return res.json({
@@ -129,10 +128,12 @@ class PasswordRecoveryController {
         })
       }
 
-      if (!user.celular) {
+      const recoveryPhone = user.celular || user.telefone
+
+      if (!recoveryPhone) {
         return res.status(400).json({
           success: false,
-          message: 'Usuário não possui celular cadastrado'
+          message: 'Usuário não possui telefone/celular cadastrado'
         })
       }
 
@@ -148,7 +149,7 @@ class PasswordRecoveryController {
             'recuperacao_senha.codigo': codigo,
             'recuperacao_senha.expira_em': expiraEm,
             'recuperacao_senha.metodo': 'sms',
-            'recuperacao_senha.celular': user.celular
+            'recuperacao_senha.celular': recoveryPhone
           }
         }
       )
@@ -199,7 +200,7 @@ class PasswordRecoveryController {
         })
       }
 
-      const phoneFormatted = formatPhoneForSMS(user.celular)
+      const phoneFormatted = formatPhoneForSMS(recoveryPhone)
       const mensagem = `Seu código de recuperação MK-Edge é: ${codigo}. Válido por 10 minutos.`
 
       const paramsObj = {
@@ -457,10 +458,12 @@ class PasswordRecoveryController {
         })
       }
 
-      if (!user.celular) {
+      const recoveryPhone = user.celular || user.telefone
+
+      if (!recoveryPhone) {
         return res.status(400).json({
           success: false,
-          message: 'Usuário não possui celular cadastrado'
+          message: 'Usuário não possui telefone/celular cadastrado'
         })
       }
 
@@ -476,7 +479,7 @@ class PasswordRecoveryController {
             'recuperacao_senha.codigo': codigo,
             'recuperacao_senha.expira_em': expiraEm,
             'recuperacao_senha.metodo': 'whatsapp',
-            'recuperacao_senha.celular': user.celular
+            'recuperacao_senha.celular': recoveryPhone
           }
         }
       )
@@ -527,7 +530,7 @@ class PasswordRecoveryController {
         })
       }
 
-      const phoneFormatted = formatPhoneForSMS(user.celular)
+      const phoneFormatted = formatPhoneForSMS(recoveryPhone)
       const mensagem = `🔐 *MK-Edge - Recuperação de Senha*\n\nSeu código de recuperação é: *${codigo}*\n\nVálido por 10 minutos.`
 
       try {
