@@ -7,6 +7,33 @@ const logger = require('../../logger')
 const User = require('../schemas/User')
 
 class PasswordRecoveryController {
+  static normalizeCnpj(value) {
+    if (!value) return '';
+    return String(value).replace(/[^\d]/g, '');
+  }
+
+  static formatCnpj(value) {
+    const digits = PasswordRecoveryController.normalizeCnpj(value);
+    if (digits.length !== 14) return digits;
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12, 14)}`;
+  }
+
+  static buildIdentifierQuery(identifier) {
+    const cleanIdentifier = PasswordRecoveryController.normalizeCnpj(identifier);
+    const formattedIdentifier = PasswordRecoveryController.formatCnpj(cleanIdentifier);
+
+    return {
+      $or: [
+        { login: cleanIdentifier },
+        { login: formattedIdentifier },
+        { login: identifier },
+        { username: cleanIdentifier },
+        { username: identifier },
+        { email: identifier }
+      ]
+    };
+  }
+
   /**
    * GET /api/auth/password-recovery/contacts
    * Obter contatos mascarados para recuperação de senha
@@ -26,13 +53,9 @@ class PasswordRecoveryController {
       const cleanIdentifier = identifier.replace(/[.\-\/]/g, '')
 
       // Procura na tabela users (por login ou email)
-      let user = await User.findOne({
-        $or: [
-          { login: cleanIdentifier },  // CNPJ sem formatação
-          { username: cleanIdentifier },
-          { email: identifier }
-        ]
-      }).lean()
+      let user = await User.findOne(
+        PasswordRecoveryController.buildIdentifierQuery(identifier)
+      ).lean()
 
       if (!user) {
         logger.warn('Usuário não encontrado para recuperação de senha', {
@@ -113,13 +136,9 @@ class PasswordRecoveryController {
       const cleanIdentifier = cnpjOrUsername.replace(/[.\-\/]/g, '')
       
       // Admin usa username/login, Portal usa CNPJ sem formatação
-      const user = await User.findOne({
-        $or: [
-          { login: cleanIdentifier },
-          { username: cleanIdentifier },
-          { email: cnpjOrUsername }
-        ]
-      })
+      const user = await User.findOne(
+        PasswordRecoveryController.buildIdentifierQuery(cnpjOrUsername)
+      )
 
       if (!user) {
         return res.status(404).json({
@@ -269,13 +288,9 @@ class PasswordRecoveryController {
       const User = require('../schemas/User')
       const cleanIdentifier = cnpjOrUsername.replace(/[.\-\/]/g, '')
       
-      const user = await User.findOne({
-        $or: [
-          { login: cleanIdentifier },
-          { username: cleanIdentifier },
-          { email: cnpjOrUsername }
-        ]
-      })
+      const user = await User.findOne(
+        PasswordRecoveryController.buildIdentifierQuery(cnpjOrUsername)
+      )
 
       if (!user) {
         return res.status(404).json({
@@ -443,13 +458,9 @@ class PasswordRecoveryController {
       const User = require('../schemas/User')
       const cleanIdentifier = cnpjOrUsername.replace(/[.\-\/]/g, '')
       
-      const user = await User.findOne({
-        $or: [
-          { login: cleanIdentifier },
-          { username: cleanIdentifier },
-          { email: cnpjOrUsername }
-        ]
-      })
+      const user = await User.findOne(
+        PasswordRecoveryController.buildIdentifierQuery(cnpjOrUsername)
+      )
 
       if (!user) {
         return res.status(404).json({
@@ -595,13 +606,9 @@ class PasswordRecoveryController {
       const User = require('../schemas/User')
       const cleanIdentifier = cnpjOrUsername.replace(/[.\-\/]/g, '')
 
-      const user = await User.findOne({
-        $or: [
-          { login: cleanIdentifier },
-          { username: cleanIdentifier },
-          { email: cnpjOrUsername }
-        ]
-      })
+      const user = await User.findOne(
+        PasswordRecoveryController.buildIdentifierQuery(cnpjOrUsername)
+      )
 
       if (!user) {
         logger.warn('Tentativa de reset de senha para usuário não encontrado', {

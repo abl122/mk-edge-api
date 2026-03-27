@@ -8,6 +8,11 @@ const logger = require('../../logger');
  * Gerencia múltiplos provedores (tenants)
  */
 class TenantService {
+  static normalizeCnpj(cnpj) {
+    if (!cnpj) return '';
+    return String(cnpj).replace(/[^\d]/g, '');
+  }
+
   /**
    * Encontra tenant por ID
    * @param {string} tenantId - ID do tenant
@@ -47,11 +52,12 @@ class TenantService {
    */
   static async findByCnpj(cnpj) {
     try {
+      const normalizedCnpj = this.normalizeCnpj(cnpj);
       const Tenant = mongoose.model('Tenant');
-      const tenant = await Tenant.findOne({ 'provedor.cnpj': cnpj });
+      const tenant = await Tenant.findOne({ 'provedor.cnpj': normalizedCnpj });
 
       if (!tenant) {
-        logger.debug('Tenant não encontrado por CNPJ', { cnpj });
+        logger.debug('Tenant não encontrado por CNPJ', { cnpj: normalizedCnpj });
         return null;
       }
 
@@ -152,6 +158,8 @@ class TenantService {
         throw new Error('Nome e CNPJ do provedor são obrigatórios');
       }
 
+      data.provedor.cnpj = this.normalizeCnpj(data.provedor.cnpj);
+
       // Verifica se CNPJ já existe
       const existing = await this.findByCnpj(data.provedor.cnpj);
       if (existing) {
@@ -234,8 +242,10 @@ class TenantService {
         }
       }
 
-      // Se está atualizando CNPJ, verifica se já existe
+      // Se está atualizando CNPJ, padroniza e verifica se já existe
       if (data.provedor?.cnpj) {
+        data.provedor.cnpj = this.normalizeCnpj(data.provedor.cnpj);
+
         const existing = await Tenant.findOne({
           'provedor.cnpj': data.provedor.cnpj,
           _id: { $ne: tenantId }
@@ -315,6 +325,26 @@ class TenantService {
           logger.info('✅ Usuário portal criado', {
             user_id: newPortalUser._id,
             login: newPortalUser.login
+          });
+        }
+      }
+
+      // Se CNPJ foi alterado, sincroniza login do usuário portal para manter autenticação consistente
+      if (data.provedor?.cnpj) {
+        const User = mongoose.model('User');
+        const portalUser = await User.findOne({
+          tenant_id: tenantId,
+          roles: 'portal'
+        });
+
+        if (portalUser && portalUser.login !== data.provedor.cnpj) {
+          portalUser.login = data.provedor.cnpj;
+          await portalUser.save();
+
+          logger.info('✅ Login do usuário portal sincronizado com CNPJ padronizado', {
+            tenant_id: tenantId,
+            user_id: portalUser._id,
+            login: portalUser.login
           });
         }
       }

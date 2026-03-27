@@ -135,6 +135,63 @@ class SearchController {
   }
 
   /**
+   * Busca clientes por status (bloqueado/observacao/normal) sem o LIMIT da busca por nome
+   * GET /search/by-status?status=blocked|observation|normal
+   */
+  async byStatus(req, res) {
+    try {
+      const { tenant } = req;
+      const { status = 'blocked' } = req.query;
+
+      if (!tenant.usaAgente()) {
+        return res.status(400).json({ error: 'Provedor não configurado para usar agente MK-Auth' });
+      }
+
+      const queryMap = {
+        blocked: 'buscarClientesBloqueados',
+        observation: 'buscarClientesObservacao',
+        normal: 'buscarClientesNormais',
+      };
+
+      const queryName = queryMap[status];
+      if (!queryName) {
+        return res.status(400).json({ error: 'Status inválido. Use: blocked, observation ou normal' });
+      }
+
+      const clientesRes = await MkAuthAgentService.execute(tenant, queryName);
+      const clientes = clientesRes.data || [];
+
+      const conectadosRes = await MkAuthAgentService.execute(tenant, 'loginsConectados');
+      const conectados = new Set((conectadosRes.data || []).map((c) => c.login));
+
+      let online = 0;
+      let offline = 0;
+
+      for (let i = 0; i < clientes.length; i += 1) {
+        const cli = clientes[i];
+        const isConnected = conectados.has(cli.login);
+        clientes[i] = {
+          ...cli,
+          equipment_array: isConnected ? 'Online' : 'Offline',
+        };
+        if (isConnected) online += 1;
+        else offline += 1;
+      }
+
+      return res.json({
+        results: clientes,
+        info: { online, offline }
+      });
+    } catch (error) {
+      logger.error('[SearchController] Erro ao buscar clientes por status', {
+        error: error.message,
+        status: req.query.status
+      });
+      return res.status(500).json({ error: 'Erro ao buscar clientes', message: error.message });
+    }
+  }
+
+  /**
    * Busca cliente por telefone/celular
    * GET /search/phone/:telefone
    */

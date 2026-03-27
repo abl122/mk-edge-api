@@ -4,6 +4,38 @@ const mongoose = require('mongoose')
 const logger = require('../../logger')
 
 class InvoiceService {
+  static async registrarPagamentoNaAssinatura(invoice, pagamento) {
+    try {
+      if (!invoice?.subscription_id) return
+
+      const subscription = await Subscription.findById(invoice.subscription_id)
+      if (!subscription) {
+        logger.warn('Assinatura não encontrada para registrar pagamento', {
+          subscription_id: invoice.subscription_id,
+          invoice_id: invoice._id
+        })
+        return
+      }
+
+      subscription.pagamentos.push({
+        data_pagamento: pagamento.data_pagamento || new Date(),
+        valor: pagamento.valor_pago || pagamento.valor || invoice.valor,
+        metodo: pagamento.metodo || 'outro',
+        status: 'confirmado',
+        referencia: pagamento.referencia_efi || pagamento.referencia || null,
+        observacoes: pagamento.observacoes || 'Pagamento registrado via fatura'
+      })
+
+      await subscription.save()
+    } catch (error) {
+      logger.error('Erro ao sincronizar pagamento na assinatura', {
+        invoice_id: invoice?._id,
+        subscription_id: invoice?.subscription_id,
+        error: error.message
+      })
+    }
+  }
+
   /**
    * Gera número sequencial de fatura
    */
@@ -102,6 +134,7 @@ class InvoiceService {
       }
 
       await invoice.save()
+      await this.registrarPagamentoNaAssinatura(invoice, invoice.pagamento)
 
       logger.info('Pagamento manual registrado', {
         invoice_id: invoice._id,
@@ -147,6 +180,7 @@ class InvoiceService {
       }
 
       await invoice.save()
+      await this.registrarPagamentoNaAssinatura(invoice, invoice.pagamento)
 
       logger.info('Pagamento EFI registrado', {
         invoice_id: invoice._id,
@@ -192,6 +226,69 @@ class InvoiceService {
       logger.error('Erro ao listar faturas', {
         tenant_id: tenantId,
         error: error.message
+      })
+      throw error
+    }
+  }
+
+  /**
+   * Lista pagamentos de provedores para visão administrativa
+   */
+  static async listarPagamentosProvedores(filtros = {}) {
+    try {
+      const query = { status: 'paga' }
+
+      if (filtros.tenant_id) {
+        query.tenant_id = new mongoose.Types.ObjectId(filtros.tenant_id)
+      }
+
+      if (filtros.metodo) {
+        query['pagamento.metodo'] = filtros.metodo
+      }
+
+      if (filtros.data_inicio || filtros.data_fim) {
+        query['pagamento.data_pagamento'] = {}
+        if (filtros.data_inicio) {
+          query['pagamento.data_pagamento'].$gte = new Date(filtros.data_inicio)
+        }
+        if (filtros.data_fim) {
+          query['pagamento.data_pagamento'].$lte = new Date(filtros.data_fim)
+        }
+      }
+
+      const limit = Number(filtros.limit) > 0 ? Number(filtros.limit) : 100
+
+      const invoices = await Invoice.find(query)
+        .populate('tenant_id', 'provedor.nome provedor.cnpj')
+        .populate('subscription_id', 'plan_name plan_slug ciclo_cobranca')
+        .sort({ 'pagamento.data_pagamento': -1 })
+        .limit(limit)
+        .lean()
+
+      const payments = invoices.map((invoice) => ({
+        invoice_id: invoice._id,
+        invoice_numero: invoice.numero,
+        tenant_id: invoice.tenant_id?._id,
+        provedor_nome: invoice.tenant_id?.provedor?.nome || 'Desconhecido',
+        provedor_cnpj: invoice.tenant_id?.provedor?.cnpj || '',
+        plan_name: invoice.subscription_id?.plan_name || '',
+        plan_slug: invoice.subscription_id?.plan_slug || '',
+        valor_fatura: invoice.valor,
+        valor_pago: invoice.pagamento?.valor_pago || 0,
+        metodo: invoice.pagamento?.metodo || 'outro',
+        data_pagamento: invoice.pagamento?.data_pagamento || null,
+        referencia_efi: invoice.pagamento?.referencia_efi || null,
+        observacoes: invoice.pagamento?.observacoes || ''
+      }))
+
+      return {
+        total: payments.length,
+        payments
+      }
+    } catch (error) {
+      logger.error('Erro ao listar pagamentos de provedores', {
+        error: error.message,
+        filtros
       })
       throw error
     }

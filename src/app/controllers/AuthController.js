@@ -11,6 +11,17 @@ const Tenant = require('../schemas/Tenant');
 const logger = require('../../logger');
 
 class AuthController {
+  static normalizeCnpj(cnpj) {
+    if (!cnpj) return '';
+    return String(cnpj).replace(/[^\d]/g, '');
+  }
+
+  static formatCnpj(cnpj) {
+    const digits = AuthController.normalizeCnpj(cnpj);
+    if (digits.length !== 14) return digits;
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12, 14)}`;
+  }
+
   /**
    * Login Admin
    * POST /api/auth/admin/login
@@ -113,14 +124,17 @@ class AuthController {
         });
       }
 
+      const normalizedCnpj = AuthController.normalizeCnpj(cnpj);
+      const formattedCnpj = AuthController.formatCnpj(normalizedCnpj);
+
       // Buscar usuário no MongoDB usando o login (CNPJ)
       const user = await User.findOne({ 
-        login: cnpj,
+        login: { $in: [normalizedCnpj, formattedCnpj, cnpj] },
         roles: { $in: ['portal'] }
       }).populate('tenant_id');
 
       if (!user) {
-        logger.warn('Tentativa de login portal com CNPJ não encontrado', { cnpj });
+        logger.warn('Tentativa de login portal com CNPJ não encontrado', { cnpj: normalizedCnpj });
         return res.status(401).json({
           success: false,
           message: 'CNPJ ou senha incorretos'

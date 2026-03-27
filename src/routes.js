@@ -464,6 +464,67 @@ routes.get('/tenants/:id/portal/user', authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/tenants/:id/portal/reset-password
+ * Resetar senha do usuário portal de um tenant (Admin)
+ * Body opcional: { newPassword?: string, generate?: boolean }
+ */
+routes.post('/tenants/:id/portal/reset-password', authMiddleware, async (req, res) => {
+  try {
+    const User = require('./app/schemas/User');
+    const { id } = req.params;
+    const { newPassword, generate } = req.body || {};
+
+    const portalUser = await User.findOne({
+      tenant_id: id,
+      roles: 'portal'
+    });
+
+    if (!portalUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuário portal não encontrado para este tenant'
+      });
+    }
+
+    const generatedPassword = () => {
+      const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$!%*?&';
+      let pwd = '';
+      for (let i = 0; i < 12; i += 1) {
+        pwd += charset.charAt(Math.floor(Math.random() * charset.length));
+      }
+      return pwd;
+    };
+
+    const finalPassword = newPassword && String(newPassword).trim()
+      ? String(newPassword).trim()
+      : (generate ? generatedPassword() : null);
+
+    if (!finalPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe newPassword ou use generate=true'
+      });
+    }
+
+    // Salva senha em texto puro para ser hasheada pelo pre-save do schema User
+    portalUser.senha = finalPassword;
+    await portalUser.save();
+
+    return res.json({
+      success: true,
+      message: 'Senha do portal resetada com sucesso',
+      password: finalPassword
+    });
+  } catch (error) {
+    console.error('Erro ao resetar senha do usuário portal:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erro ao resetar senha do usuário portal'
+    });
+  }
+});
+
 // ==================== ROTAS DE INSTALADOR ====================
 
 /**
@@ -582,6 +643,36 @@ routes.delete('/plans/:planId', tenantMiddleware(), authMiddleware, async (req, 
 // ==================== ROTAS DE FATURAS ====================
 
 const InvoiceService = require('./app/services/InvoiceService');
+
+/**
+ * Listar pagamentos de provedores (Admin)
+ * GET /api/admin/payments
+ */
+routes.get('/admin/payments', authMiddleware, async (req, res) => {
+  try {
+    const { tenant_id, metodo, data_inicio, data_fim, limit } = req.query;
+
+    const result = await InvoiceService.listarPagamentosProvedores({
+      tenant_id,
+      metodo,
+      data_inicio,
+      data_fim,
+      limit
+    });
+
+    res.json({
+      success: true,
+      total: result.total,
+      payments: result.payments
+    });
+  } catch (error) {
+    console.error('Erro ao listar pagamentos dos provedores:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erro ao listar pagamentos'
+    });
+  }
+});
 
 /**
  * Listar faturas de um tenant
@@ -1853,6 +1944,12 @@ routes.get('/requests/history', async (req, res) => {
  * GET /search
  */
 routes.get('/search', SearchController.index);
+
+/**
+ * Busca clientes por status (bloqueado/observacao/normal) sem LIMIT
+ * GET /search/by-status?status=blocked|observation|normal
+ */
+routes.get('/search/by-status', SearchController.byStatus);
 
 /**
  * Criar novo chamado

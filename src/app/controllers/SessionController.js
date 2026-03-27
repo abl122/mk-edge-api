@@ -43,6 +43,11 @@ function checkPassword(password, hash) {
   }
 }
 
+function normalizeHexColor(value) {
+  const clean = String(value || '').trim().replace(/^#/, '');
+  return /^[0-9a-fA-F]{6}$/.test(clean) ? `#${clean.toUpperCase()}` : null;
+}
+
 class SessionController {
   async store(req, res) {
     try {
@@ -166,6 +171,8 @@ class SessionController {
         isAdmin,
         totalPermissoes: permissoes.length
       });
+
+      const tenantPrimaryColor = normalizeHexColor(tenant?.provedor?.cores?.primaria);
       
       // Resposta com permissões granulares do sis_perm
       return res.json({
@@ -175,7 +182,8 @@ class SessionController {
           employee_id: funcionario ? funcionario.id : null,
           isAdmin,
           tenant_id: tenant._id,
-          permissoes
+          permissoes,
+          color_primary: tenantPrimaryColor
         },
         token
       });

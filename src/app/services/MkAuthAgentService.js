@@ -288,6 +288,46 @@ class MkAuthAgentService {
               AND (bloqueado = 'sim' OR bloqueado = 's')`,
       params: {}
     }),
+
+    /**
+     * Lista clientes bloqueados (sem limite)
+     */
+    buscarClientesBloqueados: () => ({
+      sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
+                   endereco_res, numero_res, bairro_res, plano, bloqueado, observacao
+            FROM sis_cliente
+            WHERE cli_ativado = 's'
+              AND (bloqueado = 'sim' OR bloqueado = 's')
+            ORDER BY nome ASC`,
+      params: {}
+    }),
+
+    /**
+     * Lista clientes em observação (sem limite)
+     */
+    buscarClientesObservacao: () => ({
+      sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
+                   endereco_res, numero_res, bairro_res, plano, bloqueado, observacao
+            FROM sis_cliente
+            WHERE cli_ativado = 's'
+              AND (observacao = 'sim' OR observacao = 's')
+            ORDER BY nome ASC`,
+      params: {}
+    }),
+
+    /**
+     * Lista clientes normais — ativados, não bloqueados, sem observação (sem limite)
+     */
+    buscarClientesNormais: () => ({
+      sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
+                   endereco_res, numero_res, bairro_res, plano, bloqueado, observacao
+            FROM sis_cliente
+            WHERE cli_ativado = 's'
+              AND (bloqueado IS NULL OR bloqueado = '' OR bloqueado = 'nao' OR bloqueado = 'n')
+              AND (observacao IS NULL OR observacao = '' OR observacao = 'nao' OR observacao = 'n')
+            ORDER BY nome ASC`,
+      params: {}
+    }),
     
     /**
      * Conta clientes em observação
@@ -1239,7 +1279,7 @@ class MkAuthAgentService {
     buscarClientesPorNome: (termo, ativoFlag) => {
       return {
         sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
-                     endereco_res, numero_res, bairro_res, plano, bloqueado
+                     endereco_res, numero_res, bairro_res, plano, bloqueado, observacao
               FROM sis_cliente
               WHERE cli_ativado = :ativoFlag
                 AND nome LIKE :termo
@@ -1255,7 +1295,7 @@ class MkAuthAgentService {
     buscarClientesPorDocumento: (termo, ativoFlag) => {
       return {
         sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
-                     endereco_res, numero_res, bairro_res, plano, bloqueado
+                     endereco_res, numero_res, bairro_res, plano, bloqueado, observacao
               FROM sis_cliente
               WHERE cli_ativado = :ativoFlag
                 AND cpf_cnpj LIKE :termo
@@ -1271,7 +1311,7 @@ class MkAuthAgentService {
     buscarClientesPorCaixa: (termo, ativoFlag) => {
       return {
         sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
-                     endereco_res, numero_res, bairro_res, plano, bloqueado, caixa_herm
+                     endereco_res, numero_res, bairro_res, plano, bloqueado, observacao, caixa_herm
               FROM sis_cliente
               WHERE cli_ativado = :ativoFlag
                 AND caixa_herm LIKE :termo
