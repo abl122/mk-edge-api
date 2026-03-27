@@ -7,6 +7,16 @@ const TenantService = require('../services/TenantService');
 const User = require('../schemas/User');
 
 class RegisterController {
+  static normalizePlanSlug(slug) {
+    const aliases = {
+      'plano-mensal-padrao': 'plano-mensal',
+      'plano-vitalicio': 'plano-anual'
+    };
+
+    const normalized = String(slug || '').trim().toLowerCase();
+    return aliases[normalized] || normalized;
+  }
+
   static normalizeBillingCycle(periodo) {
     const allowedCycles = ['mensal', 'trimestral', 'semestral', 'anual', 'vitalicio'];
     if (!periodo) return 'mensal';
@@ -88,10 +98,12 @@ class RegisterController {
         plan_slug
       } = req.body;
 
+      const normalizedPlanSlug = RegisterController.normalizePlanSlug(plan_slug);
+
       // === VALIDAÇÕES ===
 
       // Campos obrigatórios
-      if (!nome || !cnpj || !email || !admin_email || !senha || (!plan_slug && !plan_id)) {
+      if (!nome || !cnpj || !email || !admin_email || !senha || (!normalizedPlanSlug && !plan_id)) {
         return res.status(400).json({
           success: false,
           message: 'Campos obrigatórios faltando: nome, cnpj, email, admin_email, senha, plan_slug/plan_id'
@@ -173,7 +185,11 @@ class RegisterController {
         plan = await Plan.findById(plan_id);
       }
 
-      if (!plan && plan_slug) {
+      if (!plan && normalizedPlanSlug) {
+        plan = await Plan.findOne({ slug: normalizedPlanSlug, ativo: true }).sort({ created_at: -1 });
+      }
+
+      if (!plan && plan_slug && normalizedPlanSlug !== plan_slug) {
         plan = await Plan.findOne({ slug: plan_slug, ativo: true }).sort({ created_at: -1 });
       }
 

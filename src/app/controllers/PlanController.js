@@ -150,9 +150,11 @@ class PlanController {
             const { planId } = req.params;
             const {
                 nome,
+                slug,
                 descricao,
                 valor_mensal,
                 periodo,
+                recorrente,
                 limite_clientes,
                 recursos = [],
                 destaque,
@@ -161,11 +163,14 @@ class PlanController {
                 ativo
             } = req.body;
 
-            const Plan = require('mongoose').model('Plan');
+            const mongoose = require('mongoose');
+            const Plan = mongoose.model('Plan');
+            const Tenant = mongoose.model('Tenant');
+            const Subscription = mongoose.model('Subscription');
 
             // Buscar plano
             const plan = await Plan.findOne({ _id: planId, tenant_id: tenant._id });
-            
+
             if (!plan) {
                 return res.status(404).json({
                     success: false,
@@ -173,13 +178,43 @@ class PlanController {
                 });
             }
 
+            const previousSlug = plan.slug;
+            let newSlug = undefined;
+
+            if (slug !== undefined) {
+                newSlug = String(slug).trim().toLowerCase();
+
+                if (!newSlug) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Slug não pode ser vazio'
+                    });
+                }
+
+                const duplicate = await Plan.findOne({
+                    tenant_id: tenant._id,
+                    slug: newSlug,
+                    _id: { $ne: plan._id }
+                });
+
+                if (duplicate) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Slug já existe para este tenant'
+                    });
+                }
+
+                plan.slug = newSlug;
+            }
+
             // Atualizar campos
             if (nome !== undefined) plan.nome = nome;
             if (descricao !== undefined) plan.descricao = descricao;
             if (valor_mensal !== undefined) plan.valor_mensal = parseFloat(valor_mensal);
             if (periodo !== undefined) plan.periodo = periodo;
+            if (recorrente !== undefined) plan.recorrente = recorrente;
             if (limite_clientes !== undefined) plan.limite_clientes = limite_clientes ? parseInt(limite_clientes) : 0;
-            if (recursos && recursos.length > 0) plan.recursos = recursos;
+            if (Array.isArray(recursos)) plan.recursos = recursos;
             if (destaque !== undefined) plan.destaque = destaque;
             if (cor !== undefined) plan.cor = cor;
             if (dias_trial !== undefined) plan.dias_trial = parseInt(dias_trial);
@@ -189,7 +224,42 @@ class PlanController {
 
             await plan.save();
 
-            logger.info(`Plano atualizado: ${plan.nome}`, { tenant: tenant.provedor.nome });
+            // Se o slug foi alterado, sincroniza tenants e subscriptions que ainda usam o slug antigo
+            if (newSlug && previousSlug !== newSlug) {
+                await Tenant.updateOne(
+                    { _id: tenant._id, plano_atual: previousSlug },
+                    { $set: { plano_atual: newSlug } }
+                );
+
+                await Tenant.updateOne(
+                    { _id: tenant._id, 'assinatura.plano': previousSlug },
+                    {
+                        $set: {
+                            'assinatura.plano': newSlug,
+                            'assinatura.plano_nome': plan.nome,
+                            'assinatura.valor_mensal': plan.valor_mensal
+                        }
+                    }
+                );
+
+                await Subscription.updateMany(
+                    { tenant_id: tenant._id, plan_slug: previousSlug },
+                    {
+                        $set: {
+                            plan_slug: newSlug,
+                            plan_name: plan.nome,
+                            valor_mensal: plan.valor_mensal,
+                            atualizado_em: new Date()
+                        }
+                    }
+                );
+            }
+
+            logger.info(`Plano atualizado: ${plan.nome}`, {
+                tenant: tenant.provedor.nome,
+                slug_antigo: previousSlug,
+                slug_novo: plan.slug
+            });
 
             return res.json({
                 success: true,
