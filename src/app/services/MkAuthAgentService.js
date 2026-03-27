@@ -1705,6 +1705,12 @@ class MkAuthAgentService {
    */
   static async ping(tenant) {
     if (!tenant.agente || !tenant.agente.url || !tenant.agente.token) {
+      logger.warn('🔍 PING: Tenant sem agente configurado', {
+        tenant_nome: tenant?.nome,
+        tem_agente: !!tenant?.agente,
+        tem_url: !!tenant?.agente?.url,
+        tem_token: !!tenant?.agente?.token
+      });
       return false;
     }
     
@@ -1719,9 +1725,23 @@ class MkAuthAgentService {
     payload.signature = this.generateSignature(payload, token);
     
     try {
+      logger.info('🔍 PING: Enviando ping ao agente', {
+        tenant: tenant.nome,
+        url: url,
+        token_preview: token.substring(0, 8) + '...' + token.substring(token.length - 8),
+        payload_signature: payload.signature.substring(0, 16) + '...'
+      });
+      
       const response = await axios.post(url, payload, {
         timeout: 5000,
         headers: { 'Content-Type': 'application/json' }
+      });
+      
+      logger.info('🔍 PING: Resposta recebida', {
+        tenant: tenant.nome,
+        status: response.status,
+        success: response.data.success,
+        data: JSON.stringify(response.data).substring(0, 200)
       });
       
       return response.data.success === true;
@@ -1729,7 +1749,10 @@ class MkAuthAgentService {
     } catch (error) {
       logger.error('Ping ao agente falhou', {
         tenant: tenant.nome,
-        error: error.message
+        url: url,
+        error: error.message,
+        status: error.response?.status,
+        response_data: error.response?.data ? JSON.stringify(error.response.data).substring(0, 200) : 'sem resposta'
       });
       
       return false;
