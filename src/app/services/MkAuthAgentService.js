@@ -328,6 +328,25 @@ class MkAuthAgentService {
             ORDER BY nome ASC`,
       params: {}
     }),
+
+    /**
+     * Lista clientes recentes (cadastrados no mês atual)
+     */
+    buscarClientesRecentes: () => {
+      const now = new Date();
+      const mesAtual = String(now.getMonth() + 1).padStart(2, '0');
+      const anoAtual = now.getFullYear();
+      return {
+        sql: `SELECT id, nome, login, coordenadas, cpf_cnpj, celular, fone, email,
+                     endereco_res, numero_res, bairro_res, plano, bloqueado, observacao,
+                     cadastro, data_ins
+              FROM sis_cliente
+              WHERE cli_ativado = 's'
+                AND cadastro LIKE :cadastro_mes
+              ORDER BY nome ASC`,
+        params: { cadastro_mes: `%/${mesAtual}/${anoAtual}%` }
+      };
+    },
     
     /**
      * Conta clientes em observação

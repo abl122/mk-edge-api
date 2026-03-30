@@ -151,11 +151,12 @@ class SearchController {
         blocked: 'buscarClientesBloqueados',
         observation: 'buscarClientesObservacao',
         normal: 'buscarClientesNormais',
+        recent: 'buscarClientesRecentes',
       };
 
       const queryName = queryMap[status];
       if (!queryName) {
-        return res.status(400).json({ error: 'Status inválido. Use: blocked, observation ou normal' });
+        return res.status(400).json({ error: 'Status inválido. Use: blocked, observation, normal ou recent' });
       }
 
       const clientesRes = await MkAuthAgentService.execute(tenant, queryName);
