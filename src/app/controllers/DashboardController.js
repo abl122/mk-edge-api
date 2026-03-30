@@ -2,7 +2,6 @@ const MkAuthAgentService = require('../services/MkAuthAgentService');
 const MkAuthResponseAdapter = require('../helpers/MkAuthResponseAdapter');
 const logger = require('../../logger');
 const Tenant = require('../schemas/Tenant');
-const ActivityLog = require('../schemas/ActivityLog');
 
 /**
  * DashboardController - Dashboard e Estatísticas
@@ -189,46 +188,6 @@ class DashboardController {
   }
 
   /**
-   * GET /api/admin/dashboard/activities
-   * Retorna atividades recentes do sistema
-   */
-  async getActivities(req, res) {
-    try {
-      const { limit = 10 } = req.query;
-
-      const activities = await ActivityLog.find()
-        .sort({ created_at: -1 })
-        .limit(parseInt(limit))
-        .populate('tenant_id', 'provedor.nome')
-        .lean();
-
-      const formattedActivities = activities.map(activity => ({
-        id: activity._id,
-        tipo: activity.tipo,
-        titulo: activity.titulo,
-        descricao: activity.descricao,
-        tenant: activity.tenant_id?.provedor?.nome,
-        hora: new Date(activity.created_at).toLocaleTimeString('pt-BR', { 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        }),
-        data: activity.created_at
-      }));
-
-      return res.json({
-        success: true,
-        activities: formattedActivities
-      });
-    } catch (error) {
-      logger.error('Erro ao buscar atividades:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Erro ao buscar atividades'
-      });
-    }
-  }
-
-  /**
    * GET /api/admin/dashboard/alerts
    * Retorna alertas ativos do sistema
    */
@@ -347,35 +306,6 @@ class DashboardController {
     }
   }
 
-  /**
-   * POST /api/admin/dashboard/activity
-   * Cria uma nova atividade no log
-   */
-  async createActivity(req, res) {
-    try {
-      const { tipo, titulo, descricao, tenant_id, metadata } = req.body;
-
-      const activity = await ActivityLog.create({
-        tipo,
-        titulo,
-        descricao,
-        tenant_id,
-        user_id: req.user?._id,
-        metadata
-      });
-
-      return res.json({
-        success: true,
-        activity
-      });
-    } catch (error) {
-      logger.error('Erro ao criar atividade:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Erro ao criar atividade'
-      });
-    }
-  }
 }
 
 module.exports = new DashboardController();

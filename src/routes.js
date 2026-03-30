@@ -961,12 +961,6 @@ routes.get('/dashboard/stats', DashboardController.stats);
 routes.get('/admin/dashboard/stats', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getAdminStats(req, res));
 
 /**
- * Dashboard Admin - Atividades recentes
- * GET /admin/dashboard/activities (montado como /api/admin/dashboard/activities no app.js)
- */
-routes.get('/admin/dashboard/activities', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getActivities(req, res));
-
-/**
  * Dashboard Admin - Alertas ativos
  * GET /admin/dashboard/alerts (montado como /api/admin/dashboard/alerts no app.js)
  */
@@ -977,12 +971,6 @@ routes.get('/admin/dashboard/alerts', optionalTenantMiddleware(), authMiddleware
  * GET /admin/dashboard/health (montado como /api/admin/dashboard/health no app.js)
  */
 routes.get('/admin/dashboard/health', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getSystemHealth(req, res));
-
-/**
- * Dashboard Admin - Criar atividade
- * POST /admin/dashboard/activity (montado como /api/admin/dashboard/activity no app.js)
- */
-routes.post('/admin/dashboard/activity', optionalTenantMiddleware(), authMiddleware, DashboardController.createActivity);
 
 /**
  * Buscar cliente
