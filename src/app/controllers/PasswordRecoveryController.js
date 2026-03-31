@@ -5,28 +5,132 @@
 
 const logger = require('../../logger')
 const User = require('../schemas/User')
+const Tenant = require('../schemas/Tenant')
+const MkAuthAgentService = require('../services/MkAuthAgentService')
 
 class PasswordRecoveryController {
+  static sanitizeEmail(value) {
+    const email = String(value || '').trim().toLowerCase();
+    if (!email) return '';
+
+    const invalidValues = ['****', '***', 'nao informado', 'não informado', 'n/a', 'null', 'undefined', '-'];
+    if (invalidValues.includes(email)) return '';
+    if (!email.includes('@')) return '';
+
+    return email;
+  }
+
+  static sanitizePhone(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    const lowered = raw.toLowerCase();
+    const invalidValues = ['****', '***', 'nao informado', 'não informado', 'n/a', 'null', 'undefined', '-'];
+    if (invalidValues.includes(lowered)) return '';
+
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length < 8) return '';
+
+    return digits;
+  }
+
+  static maskEmail(email) {
+    if (!email) return '****';
+
+    const [localPart, domain] = String(email).split('@');
+    if (!localPart || !domain) return '****';
+
+    const visible = localPart.slice(0, 2);
+    return `${visible || '*'}***@${domain}`;
+  }
+
+  static maskPhone(phone) {
+    if (!phone) return '****';
+    const digits = String(phone).replace(/\D/g, '');
+    if (digits.length < 4) return '****';
+
+    return `${digits.slice(0, 2)}***${digits.slice(-2)}`;
+  }
+
   static resolveRecoveryContacts(user) {
     const email = (
       user?.email ||
       user?.recuperacao_senha?.email_recovery ||
       ''
-    ).toString().trim().toLowerCase();
+    );
 
     const phone = (
       user?.celular ||
       user?.recuperacao_senha?.celular ||
       user?.telefone ||
       ''
-    ).toString().trim();
+    );
+
+    const emailSanitized = PasswordRecoveryController.sanitizeEmail(email)
+    const phoneSanitized = PasswordRecoveryController.sanitizePhone(phone)
+
+    return {
+      email: emailSanitized,
+      phone: phoneSanitized,
+      emailAvailable: !!emailSanitized,
+      phoneAvailable: !!phoneSanitized
+    };
+  }
+
+  static async resolveTenantForRecovery(req, user) {
+    const tenantId = user?.tenant_id || req?.query?.tenant_id || req?.body?.tenant_id || null
+    if (tenantId) {
+      const tenant = await Tenant.findById(tenantId)
+      if (tenant) {
+        return tenant
+      }
+    }
+
+    return Tenant.findOne()
+  }
+
+  static async resolveRecoveryContactsWithFallback(req, user, identifier) {
+    const localContacts = PasswordRecoveryController.resolveRecoveryContacts(user)
+    if (localContacts.emailAvailable && localContacts.phoneAvailable) {
+      return localContacts
+    }
+
+    let email = localContacts.email
+    let phone = localContacts.phone
+
+    try {
+      const tenant = await PasswordRecoveryController.resolveTenantForRecovery(req, user)
+      if (tenant && tenant.usaAgente && tenant.usaAgente()) {
+        const mkAuthResult = await MkAuthAgentService.buscarClienteAuto(tenant, identifier)
+        const mkAuthClient = mkAuthResult?.data?.[0]
+
+        if (mkAuthClient) {
+          const mkAuthEmail = PasswordRecoveryController.sanitizeEmail(mkAuthClient.email)
+          const mkAuthPhone = PasswordRecoveryController.sanitizePhone(
+            mkAuthClient.celular || mkAuthClient.fone || mkAuthClient.telefone
+          )
+
+          if (!email && mkAuthEmail) {
+            email = mkAuthEmail
+          }
+          if (!phone && mkAuthPhone) {
+            phone = mkAuthPhone
+          }
+        }
+      }
+    } catch (error) {
+      logger.warn('Falha ao buscar contatos no MKAuth para recuperação', {
+        identifier,
+        error: error.message
+      })
+    }
 
     return {
       email,
       phone,
       emailAvailable: !!email,
       phoneAvailable: !!phone
-    };
+    }
   }
 
   static normalizeCnpj(value) {
@@ -75,43 +179,23 @@ class PasswordRecoveryController {
       const cleanIdentifier = identifier.replace(/[.\-\/]/g, '')
 
       // Procura na tabela users (por login ou email)
-      let user = await User.findOne(
+      const user = await User.findOne(
         PasswordRecoveryController.buildIdentifierQuery(identifier)
       ).lean()
 
-      if (!user) {
-        logger.warn('Usuário não encontrado para recuperação de senha', {
-          identifier,
-          cleanIdentifier
-        })
-        // Não retorna erro específico por segurança
-        return res.json({
-          success: true,
-          data: {
-            emailMasked: '****',
-            phoneMasked: '****',
-            emailAvailable: false,
-            phoneAvailable: false,
-            smsEnabled: false,
-            whatsappEnabled: false,
-            emailEnabled: false
-          }
-        })
-      }
+      // Usuário MKAuth: usa cadastro local e fallback no MKAuth Agent.
+      const { email, phone, emailAvailable, phoneAvailable } = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
+        req,
+        user,
+        identifier
+      )
 
-      // Usuário MKAuth: prioriza email/celular de cadastro para recuperação.
-      const { email, phone, emailAvailable, phoneAvailable } = PasswordRecoveryController.resolveRecoveryContacts(user)
-
-      const mascaraEmail = email
-        ? email.replace(/(.{2})(.*)(@.*)/, '$1***$3')
-        : '****'
-      const mascaraPhone = phone 
-        ? phone.replace(/(.{2})(.*)(.{2})/, '$1***$3') 
-        : '****'
+      const mascaraEmail = PasswordRecoveryController.maskEmail(email)
+      const mascaraPhone = PasswordRecoveryController.maskPhone(phone)
 
       logger.info('Contatos de recuperação de senha obtidos', {
         identifier,
-        found: true,
+        found: !!user,
         hasEmail: emailAvailable,
         hasPhone: phoneAvailable
       })
@@ -170,7 +254,11 @@ class PasswordRecoveryController {
         })
       }
 
-      const { phone: recoveryPhone } = PasswordRecoveryController.resolveRecoveryContacts(user)
+      const { phone: recoveryPhone } = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
+        req,
+        user,
+        cnpjOrUsername
+      )
 
       if (!recoveryPhone) {
         return res.status(400).json({
@@ -322,7 +410,11 @@ class PasswordRecoveryController {
         })
       }
 
-      const { email: recoveryEmail } = PasswordRecoveryController.resolveRecoveryContacts(user)
+      const { email: recoveryEmail } = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
+        req,
+        user,
+        cnpjOrUsername
+      )
 
       if (!recoveryEmail) {
         return res.status(400).json({
@@ -494,7 +586,11 @@ class PasswordRecoveryController {
         })
       }
 
-      const { phone: recoveryPhone } = PasswordRecoveryController.resolveRecoveryContacts(user)
+      const { phone: recoveryPhone } = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
+        req,
+        user,
+        cnpjOrUsername
+      )
 
       if (!recoveryPhone) {
         return res.status(400).json({
