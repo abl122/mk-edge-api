@@ -8,6 +8,7 @@
 const mongoose = require('mongoose');
 
 const MONGODB_URL = process.env.MONGODB_URL || 'mongodb://localhost:27017/mkedgetenants';
+const DEFAULT_ADMIN_EMAIL = process.env.DEFAULT_ADMIN_EMAIL || '';
 
 async function main() {
   try {
@@ -47,10 +48,14 @@ async function main() {
       // Verifica email
       if (!user.email) {
         issues.push('❌ Email não definido');
-        // Para admin, usar email padrão, para portal, deixar vazio para preenchimento manual
+        // Para admin, usar email padrão configurado por ambiente.
         if (user.roles?.includes('admin')) {
-          updates.email = 'vendas@updata.com.br';
-          console.log('   ⚠️  Email não definido - será definido como: vendas@updata.com.br');
+          if (DEFAULT_ADMIN_EMAIL) {
+            updates.email = DEFAULT_ADMIN_EMAIL;
+            console.log(`   ⚠️  Email não definido - será definido como: ${DEFAULT_ADMIN_EMAIL}`);
+          } else {
+            console.log('   ⚠️  Email não definido - configure DEFAULT_ADMIN_EMAIL para preenchimento automático');
+          }
         } else {
           console.log('   ⚠️  Email não definido - requer configuração manual');
         }

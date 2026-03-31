@@ -6,6 +6,7 @@
 
 const express = require('express');
 const routes = express.Router();
+const LEGACY_BILLING_DOMAIN_SUFFIX = (process.env.LEGACY_BILLING_DOMAIN_SUFFIX || 'updata.com.br').toLowerCase();
 
 // Controllers
 const RequestController = require('./app/controllers/RequestController');
@@ -42,7 +43,7 @@ const normalizeBaseUrl = (value) => {
 
 const isLegacyUpdataOrigin = (value) => {
   const origin = String(value || '').trim().toLowerCase();
-  return origin.includes('provedor.updata.com.br');
+  return !!LEGACY_BILLING_DOMAIN_SUFFIX && origin.includes(LEGACY_BILLING_DOMAIN_SUFFIX);
 };
 
 const resolveOriginFromAgentUrl = (agentUrl) => {

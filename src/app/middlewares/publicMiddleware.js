@@ -10,9 +10,9 @@ const TenantService = require('../services/TenantService');
 /**
  * Middleware que carrega dados do tenant e injeta nas páginas públicas
  * Suporta:
- * - URL com domínio customizado: updata.com.br/portal
+ * - URL com domínio customizado: provedor.exemplo.com.br/portal
  * - URL com tenant_id: localhost:3335/portal?tenant_id=xxx
- * - Query param: localhost:3335/portal?dominio=updata.com.br
+ * - Query param: localhost:3335/portal?dominio=provedor.exemplo.com.br
  */
 async function publicMiddleware(req, res, next) {
   try {

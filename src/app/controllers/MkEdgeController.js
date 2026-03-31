@@ -14,6 +14,18 @@
 const fs = require('fs');
 const path = require('path');
 
+function getPublicBaseUrl(req) {
+  const configuredBase = String(process.env.MK_EDGE_PUBLIC_BASE_URL || '').trim();
+  if (configuredBase) {
+    return configuredBase.replace(/\/$/, '');
+  }
+
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || req.protocol || 'https';
+  const host = req.get('host');
+  return `${protocol}://${host}`.replace(/\/$/, '');
+}
+
 class MkEdgeController {
   /**
    * Download de arquivos do MK-Edge
@@ -109,11 +121,13 @@ class MkEdgeController {
    * GET /mk-edge/info
    */
   static info(req, res) {
+    const baseUrl = getPublicBaseUrl(req);
+
     const files = {
       'installer.sh': {
         description: 'Script de instalação automatizada do agente MK-Edge',
         type: 'bash',
-        usage: 'curl -s https://updata.com.br/mk-edge/installer.sh | bash -s TENANT_ID EMAIL',
+        usage: `curl -s ${baseUrl}/mk-edge/installer.sh | bash -s TENANT_ID EMAIL`,
         size_kb: 'Verificar',
         version: '1.0.0'
       },
@@ -147,7 +161,7 @@ class MkEdgeController {
       agent: 'MK-Edge',
       version: '1.0.0',
       files: files,
-      download_url: 'https://updata.com.br/mk-edge/:file'
+      download_url: `${baseUrl}/mk-edge/:file`
     });
   }
   
