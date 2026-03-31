@@ -7,6 +7,8 @@ const logger = require('../../logger')
 const User = require('../schemas/User')
 const Tenant = require('../schemas/Tenant')
 const MkAuthAgentService = require('../services/MkAuthAgentService')
+const crypto = require('crypto')
+const PasswordRecoveryToken = require('../schemas/PasswordRecoveryToken')
 
 class PasswordRecoveryController {
   static sanitizeEmail(value) {
@@ -101,25 +103,46 @@ class PasswordRecoveryController {
     try {
       const tenant = await PasswordRecoveryController.resolveTenantForRecovery(req, user)
       if (tenant && tenant.usaAgente && tenant.usaAgente()) {
-        const mkAuthResult = await MkAuthAgentService.buscarClienteAuto(tenant, identifier)
-        const mkAuthClient = mkAuthResult?.data?.[0]
+        const login = String(user?.login || identifier || '').trim()
+        if (login) {
+          let mkAuthUser = null
 
-        if (mkAuthClient) {
-          const mkAuthEmail = PasswordRecoveryController.sanitizeEmail(mkAuthClient.email)
-          const mkAuthPhone = PasswordRecoveryController.sanitizePhone(
-            mkAuthClient.celular || mkAuthClient.fone || mkAuthClient.telefone
-          )
-
-          if (!email && mkAuthEmail) {
-            email = mkAuthEmail
+          try {
+            const directFields = await MkAuthAgentService.sendToAgent(
+              tenant,
+              'SELECT login, email, celular, fone, telefone FROM sis_acesso WHERE login = :login LIMIT 1',
+              { login }
+            )
+            mkAuthUser = directFields?.data?.[0] || null
+          } catch (directError) {
+            // Fallback seguro: busca linha completa caso algum campo não exista no schema.
+            const fullRow = await MkAuthAgentService.sendToAgent(
+              tenant,
+              'SELECT * FROM sis_acesso WHERE login = :login LIMIT 1',
+              { login }
+            )
+            mkAuthUser = fullRow?.data?.[0] || null
           }
-          if (!phone && mkAuthPhone) {
-            phone = mkAuthPhone
+
+          if (mkAuthUser) {
+            const mkAuthEmail = PasswordRecoveryController.sanitizeEmail(
+              mkAuthUser.email || mkAuthUser.mail || mkAuthUser.email_recovery
+            )
+            const mkAuthPhone = PasswordRecoveryController.sanitizePhone(
+              mkAuthUser.celular || mkAuthUser.telefone || mkAuthUser.fone || mkAuthUser.phone
+            )
+
+            if (!email && mkAuthEmail) {
+              email = mkAuthEmail
+            }
+            if (!phone && mkAuthPhone) {
+              phone = mkAuthPhone
+            }
           }
         }
       }
     } catch (error) {
-      logger.warn('Falha ao buscar contatos no MKAuth para recuperação', {
+      logger.warn('Falha ao buscar contatos de usuario no MKAuth para recuperação', {
         identifier,
         error: error.message
       })
@@ -131,6 +154,34 @@ class PasswordRecoveryController {
       emailAvailable: !!email,
       phoneAvailable: !!phone
     }
+  }
+
+  static async buildMkAuthPasswordHash(plainPassword) {
+    const bcrypt = require('bcryptjs')
+    const sha256Hash = crypto.createHash('sha256').update(String(plainPassword)).digest('hex')
+    return bcrypt.hash(sha256Hash, 10)
+  }
+
+  static async findLocalUserByIdentifier(identifier) {
+    return User.findOne(PasswordRecoveryController.buildIdentifierQuery(identifier))
+  }
+
+  static async createRecoveryToken({ user, tenant, login, code, method, contact }) {
+    await PasswordRecoveryToken.deleteMany({
+      login,
+      tenant_id: tenant._id,
+      used: false
+    })
+
+    return PasswordRecoveryToken.create({
+      user_id: user?._id,
+      login,
+      tenant_id: tenant._id,
+      code,
+      method,
+      contact,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000)
+    })
   }
 
   static normalizeCnpj(value) {
@@ -236,28 +287,17 @@ class PasswordRecoveryController {
         })
       }
 
-      // Buscar usuário (admin ou portal)
-      const User = require('../schemas/User')
-      
-      // Normalizar CNPJ (remover pontuação)
-      const cleanIdentifier = cnpjOrUsername.replace(/[.\-\/]/g, '')
-      
-      // Admin usa username/login, Portal usa CNPJ sem formatação
-      const user = await User.findOne(
-        PasswordRecoveryController.buildIdentifierQuery(cnpjOrUsername)
-      )
+      const user = await PasswordRecoveryController.findLocalUserByIdentifier(cnpjOrUsername)
+      const login = String(user?.login || cnpjOrUsername).trim()
 
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'Usuário não encontrado'
-        })
+      if (!login) {
+        return res.status(400).json({ success: false, message: 'Usuário inválido' })
       }
 
       const { phone: recoveryPhone } = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
         req,
         user,
-        cnpjOrUsername
+        login
       )
 
       if (!recoveryPhone) {
@@ -269,20 +309,20 @@ class PasswordRecoveryController {
 
       // Gerar código de 6 dígitos
       const codigo = Math.floor(100000 + Math.random() * 900000).toString()
-      const expiraEm = new Date(Date.now() + 10 * 60 * 1000) // 10 minutos
 
-      // Salvar código no usuário
-      await User.updateOne(
-        { _id: user._id },
-        { 
-          $set: {
-            'recuperacao_senha.codigo': codigo,
-            'recuperacao_senha.expira_em': expiraEm,
-            'recuperacao_senha.metodo': 'sms',
-            'recuperacao_senha.celular': recoveryPhone
-          }
-        }
-      )
+      const tenant = await PasswordRecoveryController.resolveTenantForRecovery(req, user)
+      if (!tenant) {
+        return res.status(500).json({ success: false, message: 'Tenant não encontrado para recuperação' })
+      }
+
+      await PasswordRecoveryController.createRecoveryToken({
+        user,
+        tenant,
+        login,
+        code: codigo,
+        method: 'sms',
+        contact: recoveryPhone
+      })
 
       // Enviar SMS usando configuração do sistema
       const IntegrationService = require('../services/IntegrationService')
@@ -292,7 +332,7 @@ class PasswordRecoveryController {
 
       // Para admin, usar configuração do primeiro tenant disponível
       // Para portal user, usar configuração do tenant dele
-      let tenantId = user.tenant_id
+      let tenantId = tenant._id
       
       if (!tenantId) {
         // Admin não tem tenant, usar primeiro tenant do sistema
@@ -395,25 +435,17 @@ class PasswordRecoveryController {
         })
       }
 
-      // Buscar usuário (admin ou portal)
-      const User = require('../schemas/User')
-      const cleanIdentifier = cnpjOrUsername.replace(/[.\-\/]/g, '')
-      
-      const user = await User.findOne(
-        PasswordRecoveryController.buildIdentifierQuery(cnpjOrUsername)
-      )
+      const user = await PasswordRecoveryController.findLocalUserByIdentifier(cnpjOrUsername)
+      const login = String(user?.login || cnpjOrUsername).trim()
 
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'Usuário não encontrado'
-        })
+      if (!login) {
+        return res.status(400).json({ success: false, message: 'Usuário inválido' })
       }
 
       const { email: recoveryEmail } = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
         req,
         user,
-        cnpjOrUsername
+        login
       )
 
       if (!recoveryEmail) {
@@ -425,20 +457,20 @@ class PasswordRecoveryController {
 
       // Gerar código de 6 dígitos
       const codigo = Math.floor(100000 + Math.random() * 900000).toString()
-      const expiraEm = new Date(Date.now() + 10 * 60 * 1000) // 10 minutos
 
-      // Salvar código no usuário
-      await User.updateOne(
-        { _id: user._id },
-        { 
-          $set: {
-            'recuperacao_senha.codigo': codigo,
-            'recuperacao_senha.expira_em': expiraEm,
-            'recuperacao_senha.metodo': 'email',
-            'recuperacao_senha.email_recovery': recoveryEmail
-          }
-        }
-      )
+      const tenant = await PasswordRecoveryController.resolveTenantForRecovery(req, user)
+      if (!tenant) {
+        return res.status(500).json({ success: false, message: 'Tenant não encontrado para recuperação' })
+      }
+
+      await PasswordRecoveryController.createRecoveryToken({
+        user,
+        tenant,
+        login,
+        code: codigo,
+        method: 'email',
+        contact: recoveryEmail
+      })
 
       // Enviar Email usando configuração SMTP
       const IntegrationService = require('../services/IntegrationService')
@@ -447,7 +479,7 @@ class PasswordRecoveryController {
 
       // Para admin, usar configuração do primeiro tenant disponível
       // Para portal user, usar configuração do tenant dele
-      let tenantId = user.tenant_id
+      let tenantId = tenant._id
       
       if (!tenantId) {
         // Admin não tem tenant, usar primeiro tenant do sistema
@@ -723,64 +755,90 @@ class PasswordRecoveryController {
         })
       }
 
-      // Buscar usuário
-      const User = require('../schemas/User')
-      const cleanIdentifier = cnpjOrUsername.replace(/[.\-\/]/g, '')
+      const user = await PasswordRecoveryController.findLocalUserByIdentifier(cnpjOrUsername)
+      const login = String(user?.login || cnpjOrUsername).trim()
 
-      const user = await User.findOne(
-        PasswordRecoveryController.buildIdentifierQuery(cnpjOrUsername)
-      )
-
-      if (!user) {
-        logger.warn('Tentativa de reset de senha para usuário não encontrado', {
-          identifier: cnpjOrUsername
-        })
-        return res.status(404).json({
-          success: false,
-          message: 'Usuário não encontrado'
-        })
+      if (!login) {
+        return res.status(400).json({ success: false, message: 'Usuário inválido' })
       }
 
-      // Validar código
-      if (!user.recuperacao_senha || !user.recuperacao_senha.codigo) {
+      const tenant = await PasswordRecoveryController.resolveTenantForRecovery(req, user)
+      if (!tenant) {
+        return res.status(500).json({ success: false, message: 'Tenant não encontrado para recuperação' })
+      }
+
+      const token = await PasswordRecoveryToken.findOne({
+        login,
+        tenant_id: tenant._id,
+        code,
+        used: false,
+        expiresAt: { $gt: new Date() }
+      }).sort({ createdAt: -1 })
+
+      if (!token) {
         return res.status(400).json({
           success: false,
-          message: 'Nenhum código de recuperação solicitado'
+          message: 'Código inválido ou expirado'
         })
       }
 
-      // Verificar se código expirou
-      if (new Date() > new Date(user.recuperacao_senha.expira_em)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Código expirado. Solicite um novo código.'
-        })
-      }
-
-      // Verificar se código está correto
-      if (user.recuperacao_senha.codigo !== code) {
-        return res.status(400).json({
-          success: false,
-          message: 'Código inválido'
-        })
-      }
-
-      // Hashear a nova senha
+      // Hashear a nova senha para usuário local
       const bcrypt = require('bcryptjs')
       const novaSenhaHash = await bcrypt.hash(newPassword, 10)
 
-      // Atualizar senha e limpar código de recuperação
-      await User.updateOne(
-        { _id: user._id },
-        { 
-          senha: novaSenhaHash,
-          $unset: { recuperacao_senha: 1 }
+      // Hash compatível com login do app no MKAuth (SHA256 -> bcrypt)
+      const mkAuthShaBcryptHash = await PasswordRecoveryController.buildMkAuthPasswordHash(newPassword)
+
+      const loginToUpdate = login
+
+      if (tenant && tenant.usaAgente && tenant.usaAgente() && loginToUpdate) {
+        const mkAuthUpdateResult = await MkAuthAgentService.sendToAgent(
+          tenant,
+          'UPDATE sis_acesso SET sha = :sha WHERE login = :login LIMIT 1',
+          {
+            sha: mkAuthShaBcryptHash,
+            login: loginToUpdate
+          }
+        )
+
+        if (!mkAuthUpdateResult?.success) {
+          logger.error('Falha ao atualizar senha no MKAuth', {
+            identifier: cnpjOrUsername,
+            login: loginToUpdate
+          })
+
+          return res.status(500).json({
+            success: false,
+            message: 'Erro ao atualizar senha no MKAuth'
+          })
         }
-      )
+      } else {
+        logger.warn('Tenant/agente indisponivel para atualizar senha no MKAuth', {
+          identifier: cnpjOrUsername,
+          login: loginToUpdate
+        })
+      }
+
+      // Marcar token como utilizado
+      token.used = true
+      token.usedAt = new Date()
+      await token.save()
+
+      // Atualizar senha local somente se usuário existir no Mongo
+      if (user?._id) {
+        await User.updateOne(
+          { _id: user._id },
+          {
+            senha: novaSenhaHash,
+            $unset: { recuperacao_senha: 1 }
+          }
+        )
+      }
 
       logger.info('Senha resetada com sucesso', {
         identifier: cnpjOrUsername,
-        userId: user._id
+        userId: user?._id || null,
+        login: loginToUpdate
       })
 
       return res.json({

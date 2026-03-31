@@ -10,7 +10,13 @@ const PasswordRecoveryTokenSchema = new mongoose.Schema(
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
+      required: false,
+      index: true
+    },
+    login: {
+      type: String,
       required: true,
+      trim: true,
       index: true
     },
     tenant_id: {
