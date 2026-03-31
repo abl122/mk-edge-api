@@ -39,6 +39,12 @@ const PasswordRecoveryTokenSchema = new mongoose.Schema(
       type: String, // telefone ou email que recebeu o código
       required: true
     },
+    purpose: {
+      type: String,
+      enum: ['password_recovery', 'client_login_2fa'],
+      default: 'password_recovery',
+      index: true
+    },
     expiresAt: {
       type: Date,
       required: true,

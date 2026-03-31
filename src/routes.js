@@ -405,6 +405,26 @@ routes.post('/auth/password-recovery/request-whatsapp', PasswordRecoveryControll
  */
 routes.post('/auth/password-recovery/verify-code', PasswordRecoveryController.verifyCodeAndReset);
 
+/**
+ * Obter contatos para login 2FA do cliente
+ * GET /api/auth/login-2fa/contacts?cpf=00000000000&tenant_id=...
+ */
+routes.get('/auth/login-2fa/contacts', PasswordRecoveryController.getClient2FAContacts);
+
+/**
+ * Solicitar código para login 2FA do cliente
+ * POST /api/auth/login-2fa/request-code
+ * Body: { cpf, method: 'email'|'sms', tenant_id }
+ */
+routes.post('/auth/login-2fa/request-code', PasswordRecoveryController.requestClient2FACode);
+
+/**
+ * Validar código para login 2FA do cliente
+ * POST /api/auth/login-2fa/verify-code
+ * Body: { cpf, code, tenant_id }
+ */
+routes.post('/auth/login-2fa/verify-code', PasswordRecoveryController.verifyClient2FACode);
+
 // ==================== ROTAS DE TENANTS (ADMIN) ====================
 
 console.log('🔧 Registrando rotas de tenants...');

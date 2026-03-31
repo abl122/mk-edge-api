@@ -196,6 +196,7 @@ class PasswordRecoveryController {
     await PasswordRecoveryToken.deleteMany({
       login,
       tenant_id: tenant._id,
+      purpose: 'password_recovery',
       used: false
     })
 
@@ -206,6 +207,65 @@ class PasswordRecoveryController {
       code,
       method,
       contact,
+      purpose: 'password_recovery',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000)
+    })
+  }
+
+  static normalizeCpf(value) {
+    return String(value || '').replace(/\D/g, '')
+  }
+
+  static async resolveTenantFromRequest(req, user = null) {
+    const tenantId =
+      user?.tenant_id ||
+      req?.query?.tenant_id ||
+      req?.body?.tenant_id ||
+      null
+
+    if (tenantId) {
+      const byId = await Tenant.findById(tenantId)
+      if (byId) return byId
+    }
+
+    return PasswordRecoveryController.resolveTenantForRecovery(req, user)
+  }
+
+  static async findClientByCpf(tenant, cpf) {
+    const cleanCpf = PasswordRecoveryController.normalizeCpf(cpf)
+    if (!cleanCpf || cleanCpf.length !== 11) {
+      return null
+    }
+
+    const result = await MkAuthAgentService.sendToAgent(
+      tenant,
+      `SELECT id, login, nome, email, celular, fone, cpf_cnpj
+       FROM sis_cliente
+       WHERE REPLACE(REPLACE(REPLACE(cpf_cnpj, '.', ''), '-', ''), ' ', '') = :cpf
+          OR REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = :cpf
+       ORDER BY id DESC
+       LIMIT 1`,
+      { cpf: cleanCpf }
+    )
+
+    return result?.data?.[0] || null
+  }
+
+  static async createClientLogin2FAToken({ tenant, login, code, method, contact }) {
+    await PasswordRecoveryToken.deleteMany({
+      login,
+      tenant_id: tenant._id,
+      purpose: 'client_login_2fa',
+      used: false
+    })
+
+    return PasswordRecoveryToken.create({
+      login,
+      tenant_id: tenant._id,
+      code,
+      method,
+      contact,
+      purpose: 'client_login_2fa',
       expiresAt: new Date(Date.now() + 10 * 60 * 1000)
     })
   }
@@ -796,6 +856,7 @@ class PasswordRecoveryController {
       const token = await PasswordRecoveryToken.findOne({
         login,
         tenant_id: tenant._id,
+        purpose: 'password_recovery',
         code,
         used: false,
         expiresAt: { $gt: new Date() }
@@ -876,6 +937,298 @@ class PasswordRecoveryController {
       return res.status(500).json({
         success: false,
         message: 'Erro ao resetar senha'
+      })
+    }
+  }
+
+  /**
+   * GET /api/auth/login-2fa/contacts
+   * Obter contatos mascarados do cliente por CPF
+   */
+  static async getClient2FAContacts(req, res) {
+    try {
+      const { cpf } = req.query
+
+      if (!cpf) {
+        return res.status(400).json({
+          success: false,
+          message: 'CPF é obrigatório'
+        })
+      }
+
+      const tenant = await PasswordRecoveryController.resolveTenantFromRequest(req)
+      if (!tenant || !tenant.usaAgente || !tenant.usaAgente()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Provedor sem integração com agente'
+        })
+      }
+
+      const client = await PasswordRecoveryController.findClientByCpf(tenant, cpf)
+      if (!client) {
+        return res.status(404).json({
+          success: false,
+          message: 'Cliente não encontrado para este CPF'
+        })
+      }
+
+      const email = PasswordRecoveryController.sanitizeEmail(client.email)
+      const phone = PasswordRecoveryController.sanitizePhone(client.celular || client.fone)
+
+      return res.json({
+        success: true,
+        data: {
+          emailMasked: PasswordRecoveryController.maskEmail(email),
+          phoneMasked: PasswordRecoveryController.maskPhone(phone),
+          emailAvailable: !!email,
+          phoneAvailable: !!phone,
+          emailEnabled: !!email,
+          smsEnabled: !!phone,
+          clientLogin: String(client.login || '').trim() || undefined,
+          clientName: String(client.nome || '').trim() || undefined
+        }
+      })
+    } catch (error) {
+      logger.error('Erro ao obter contatos 2FA de cliente:', error)
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao obter contatos de verificação'
+      })
+    }
+  }
+
+  /**
+   * POST /api/auth/login-2fa/request-code
+   * Solicitar código de login 2FA do cliente por email ou SMS
+   */
+  static async requestClient2FACode(req, res) {
+    try {
+      const { cpf, method } = req.body
+      const methodNormalized = String(method || '').trim().toLowerCase()
+
+      if (!cpf || !['email', 'sms'].includes(methodNormalized)) {
+        return res.status(400).json({
+          success: false,
+          message: 'CPF e método (email ou sms) são obrigatórios'
+        })
+      }
+
+      const tenant = await PasswordRecoveryController.resolveTenantFromRequest(req)
+      if (!tenant || !tenant.usaAgente || !tenant.usaAgente()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Provedor sem integração com agente'
+        })
+      }
+
+      const client = await PasswordRecoveryController.findClientByCpf(tenant, cpf)
+      if (!client) {
+        return res.status(404).json({
+          success: false,
+          message: 'Cliente não encontrado para este CPF'
+        })
+      }
+
+      const login = String(client.login || '').trim()
+      if (!login) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cliente sem login válido para verificação'
+        })
+      }
+
+      const recoveryEmail = PasswordRecoveryController.sanitizeEmail(client.email)
+      const recoveryPhone = PasswordRecoveryController.sanitizePhone(client.celular || client.fone)
+      const codigo = Math.floor(100000 + Math.random() * 900000).toString()
+
+      if (methodNormalized === 'email' && !recoveryEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cliente sem email cadastrado'
+        })
+      }
+
+      if (methodNormalized === 'sms' && !recoveryPhone) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cliente sem celular cadastrado'
+        })
+      }
+
+      await PasswordRecoveryController.createClientLogin2FAToken({
+        tenant,
+        login,
+        code: codigo,
+        method: methodNormalized,
+        contact: methodNormalized === 'email' ? recoveryEmail : recoveryPhone
+      })
+
+      const IntegrationService = require('../services/IntegrationService')
+
+      if (methodNormalized === 'email') {
+        const nodemailer = require('nodemailer')
+
+        const integration = await IntegrationService.findByTenantAndType(tenant._id, 'email')
+        if (!integration?.email?.enabled) {
+          return res.status(500).json({ success: false, message: 'Sistema de Email não configurado' })
+        }
+
+        const emailConfig = integration.email
+        const host = emailConfig.host || emailConfig.smtp_host
+        const port = emailConfig.port || emailConfig.smtp_port
+        const userEmail = emailConfig.user || emailConfig.username || emailConfig.usuario
+        const passwordEmail = emailConfig.password || emailConfig.senha
+        const fromEmail = emailConfig.from || emailConfig.from_email || userEmail
+        const fromName = emailConfig.from_name || 'MK-Edge'
+        const secureFlag = emailConfig.secure === true || Number(port) === 465
+        const requireTLS = emailConfig.usar_tls === true
+
+        if (!host || !port || !userEmail || !passwordEmail) {
+          return res.status(500).json({ success: false, message: 'Sistema de Email não configurado' })
+        }
+
+        const transporter = nodemailer.createTransport({
+          host,
+          port,
+          secure: !!secureFlag,
+          requireTLS,
+          tls: { rejectUnauthorized: false },
+          auth: { user: userEmail, pass: passwordEmail }
+        })
+
+        await transporter.sendMail({
+          from: `"${fromName}" <${fromEmail}>`,
+          to: recoveryEmail,
+          subject: 'Código de verificação - Login MK-Edge Cliente',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #333;">Verificação de login</h2>
+              <p>Seu código para acessar o app cliente é:</p>
+              <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px; text-align: center; margin: 20px 0;">
+                <h1 style="margin: 10px 0; color: #2563eb; font-size: 36px; letter-spacing: 5px;">${codigo}</h1>
+              </div>
+              <p style="color: #666;">Este código é válido por <strong>10 minutos</strong>.</p>
+            </div>
+          `
+        })
+
+        return res.json({ success: true, message: 'Código enviado por email' })
+      }
+
+      const axios = require('axios')
+      const { formatPhoneForSMS } = require('../utils/phone')
+
+      const integration = await IntegrationService.findByTenantAndType(tenant._id, 'sms')
+      if (!integration?.sms?.enabled) {
+        return res.status(500).json({ success: false, message: 'Sistema de SMS não configurado' })
+      }
+
+      const smsUrl = integration.sms.endpoint || integration.sms.url
+      const smsUser = integration.sms.username || integration.sms.user
+      const smsPassword = integration.sms.token || integration.sms.password
+      const smsMethod = integration.sms.method || 'POST'
+
+      if (!smsUrl || !smsUser || !smsPassword) {
+        return res.status(500).json({ success: false, message: 'Sistema de SMS não configurado' })
+      }
+
+      const phoneFormatted = formatPhoneForSMS(recoveryPhone)
+      const mensagem = `Seu código de login MK-Edge é: ${codigo}. Válido por 10 minutos.`
+      const paramsObj = {
+        u: smsUser,
+        p: smsPassword,
+        to: `55${phoneFormatted}`,
+        msg: mensagem
+      }
+      const params = new URLSearchParams(paramsObj)
+
+      if (smsMethod === 'GET') {
+        await axios.get(`${smsUrl}?${params.toString()}`, { timeout: 10000 })
+      } else {
+        await axios.post(smsUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          timeout: 10000
+        })
+      }
+
+      return res.json({ success: true, message: 'Código enviado por SMS' })
+    } catch (error) {
+      logger.error('Erro ao solicitar código 2FA do cliente:', error)
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao solicitar código de verificação'
+      })
+    }
+  }
+
+  /**
+   * POST /api/auth/login-2fa/verify-code
+   * Valida o código de login 2FA do cliente
+   */
+  static async verifyClient2FACode(req, res) {
+    try {
+      const { cpf, code } = req.body
+
+      if (!cpf || !code) {
+        return res.status(400).json({
+          success: false,
+          message: 'CPF e código são obrigatórios'
+        })
+      }
+
+      const tenant = await PasswordRecoveryController.resolveTenantFromRequest(req)
+      if (!tenant || !tenant.usaAgente || !tenant.usaAgente()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Provedor sem integração com agente'
+        })
+      }
+
+      const client = await PasswordRecoveryController.findClientByCpf(tenant, cpf)
+      if (!client) {
+        return res.status(404).json({
+          success: false,
+          message: 'Cliente não encontrado para este CPF'
+        })
+      }
+
+      const login = String(client.login || '').trim()
+      if (!login) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cliente sem login válido para verificação'
+        })
+      }
+
+      const token = await PasswordRecoveryToken.findOne({
+        login,
+        tenant_id: tenant._id,
+        purpose: 'client_login_2fa',
+        code: String(code).trim(),
+        used: false,
+        expiresAt: { $gt: new Date() }
+      }).sort({ createdAt: -1 })
+
+      if (!token) {
+        return res.status(400).json({
+          success: false,
+          message: 'Código inválido ou expirado'
+        })
+      }
+
+      token.used = true
+      token.usedAt = new Date()
+      await token.save()
+
+      return res.json({
+        success: true,
+        message: 'Código validado com sucesso'
+      })
+    } catch (error) {
+      logger.error('Erro ao validar código 2FA do cliente:', error)
+      return res.status(500).json({
+        success: false,
+        message: 'Erro ao validar código de verificação'
       })
     }
   }
