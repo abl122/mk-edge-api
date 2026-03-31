@@ -242,7 +242,7 @@ class PasswordRecoveryController {
       `SELECT id, login, nome, email, celular, fone, cpf_cnpj
        FROM sis_cliente
        WHERE REPLACE(REPLACE(REPLACE(cpf_cnpj, '.', ''), '-', ''), ' ', '') = :cpf
-          OR REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = :cpf
+          OR REPLACE(REPLACE(REPLACE(login, '.', ''), '-', ''), ' ', '') = :cpf
        ORDER BY id DESC
        LIMIT 1`,
       { cpf: cleanCpf }
