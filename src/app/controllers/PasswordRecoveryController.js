@@ -7,6 +7,28 @@ const logger = require('../../logger')
 const User = require('../schemas/User')
 
 class PasswordRecoveryController {
+  static resolveRecoveryContacts(user) {
+    const email = (
+      user?.email ||
+      user?.recuperacao_senha?.email_recovery ||
+      ''
+    ).toString().trim().toLowerCase();
+
+    const phone = (
+      user?.celular ||
+      user?.recuperacao_senha?.celular ||
+      user?.telefone ||
+      ''
+    ).toString().trim();
+
+    return {
+      email,
+      phone,
+      emailAvailable: !!email,
+      phoneAvailable: !!phone
+    };
+  }
+
   static normalizeCnpj(value) {
     if (!value) return '';
     return String(value).replace(/[^\d]/g, '');
@@ -72,16 +94,17 @@ class PasswordRecoveryController {
             phoneAvailable: false,
             smsEnabled: false,
             whatsappEnabled: false,
-            emailEnabled: true
+            emailEnabled: false
           }
         })
       }
 
-      // Mascara email e telefone do usuário (tenta telefone ou celular)
-      const mascaraEmail = user.email 
-        ? user.email.replace(/(.{2})(.*)(@.*)/, '$1***$3') 
+      // Usuário MKAuth: prioriza email/celular de cadastro para recuperação.
+      const { email, phone, emailAvailable, phoneAvailable } = PasswordRecoveryController.resolveRecoveryContacts(user)
+
+      const mascaraEmail = email
+        ? email.replace(/(.{2})(.*)(@.*)/, '$1***$3')
         : '****'
-      const phone = user.telefone || user.celular
       const mascaraPhone = phone 
         ? phone.replace(/(.{2})(.*)(.{2})/, '$1***$3') 
         : '****'
@@ -89,8 +112,8 @@ class PasswordRecoveryController {
       logger.info('Contatos de recuperação de senha obtidos', {
         identifier,
         found: true,
-        hasEmail: !!user.email,
-        hasPhone: !!phone
+        hasEmail: emailAvailable,
+        hasPhone: phoneAvailable
       })
 
       return res.json({
@@ -98,11 +121,11 @@ class PasswordRecoveryController {
         data: {
           emailMasked: mascaraEmail,
           phoneMasked: mascaraPhone,
-          emailAvailable: !!user.email,
-          phoneAvailable: !!phone,
-          smsEnabled: true,
-          whatsappEnabled: true,
-          emailEnabled: true
+          emailAvailable,
+          phoneAvailable,
+          smsEnabled: phoneAvailable,
+          whatsappEnabled: phoneAvailable,
+          emailEnabled: emailAvailable
         }
       })
     } catch (error) {
@@ -147,7 +170,7 @@ class PasswordRecoveryController {
         })
       }
 
-      const recoveryPhone = user.celular || user.telefone
+      const { phone: recoveryPhone } = PasswordRecoveryController.resolveRecoveryContacts(user)
 
       if (!recoveryPhone) {
         return res.status(400).json({
@@ -299,7 +322,9 @@ class PasswordRecoveryController {
         })
       }
 
-      if (!user.email) {
+      const { email: recoveryEmail } = PasswordRecoveryController.resolveRecoveryContacts(user)
+
+      if (!recoveryEmail) {
         return res.status(400).json({
           success: false,
           message: 'Usuário não possui email cadastrado'
@@ -318,7 +343,7 @@ class PasswordRecoveryController {
             'recuperacao_senha.codigo': codigo,
             'recuperacao_senha.expira_em': expiraEm,
             'recuperacao_senha.metodo': 'email',
-            'recuperacao_senha.email_recovery': user.email
+            'recuperacao_senha.email_recovery': recoveryEmail
           }
         }
       )
@@ -393,7 +418,7 @@ class PasswordRecoveryController {
         // Enviar email
         const mailOptions = {
           from: `"${fromName}" <${fromEmail}>`,
-          to: user.email,
+          to: recoveryEmail,
           subject: 'Recuperação de Senha - MK-Edge',
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -415,7 +440,7 @@ class PasswordRecoveryController {
 
         logger.info('Código Email enviado com sucesso', {
           identifier: cnpjOrUsername,
-          email: user.email
+          email: recoveryEmail
         })
 
         return res.json({
@@ -469,7 +494,7 @@ class PasswordRecoveryController {
         })
       }
 
-      const recoveryPhone = user.celular || user.telefone
+      const { phone: recoveryPhone } = PasswordRecoveryController.resolveRecoveryContacts(user)
 
       if (!recoveryPhone) {
         return res.status(400).json({
