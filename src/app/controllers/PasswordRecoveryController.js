@@ -106,11 +106,12 @@ class PasswordRecoveryController {
         const login = String(user?.login || identifier || '').trim()
         if (login) {
           let mkAuthUser = null
+          let mkAuthEmployee = null
 
           try {
             const directFields = await MkAuthAgentService.sendToAgent(
               tenant,
-              'SELECT login, email, celular, fone, telefone FROM sis_acesso WHERE login = :login LIMIT 1',
+              'SELECT login, email, func, celular, fone, telefone FROM sis_acesso WHERE login = :login LIMIT 1',
               { login }
             )
             mkAuthUser = directFields?.data?.[0] || null
@@ -125,11 +126,36 @@ class PasswordRecoveryController {
           }
 
           if (mkAuthUser) {
+            const funcId = mkAuthUser.func || mkAuthUser.id_func || null
+
+            if (funcId) {
+              try {
+                const employeeResult = await MkAuthAgentService.sendToAgent(
+                  tenant,
+                  'SELECT id, email, celular, telefone FROM sis_func WHERE id = :id LIMIT 1',
+                  { id: funcId }
+                )
+                mkAuthEmployee = employeeResult?.data?.[0] || null
+              } catch (employeeError) {
+                logger.warn('Falha ao buscar celular em sis_func', {
+                  identifier,
+                  login,
+                  funcId,
+                  error: employeeError.message
+                })
+              }
+            }
+
             const mkAuthEmail = PasswordRecoveryController.sanitizeEmail(
-              mkAuthUser.email || mkAuthUser.mail || mkAuthUser.email_recovery
+              mkAuthEmployee?.email || mkAuthUser.email || mkAuthUser.mail || mkAuthUser.email_recovery
             )
             const mkAuthPhone = PasswordRecoveryController.sanitizePhone(
-              mkAuthUser.celular || mkAuthUser.telefone || mkAuthUser.fone || mkAuthUser.phone
+              mkAuthEmployee?.celular ||
+              mkAuthEmployee?.telefone ||
+              mkAuthUser.celular ||
+              mkAuthUser.telefone ||
+              mkAuthUser.fone ||
+              mkAuthUser.phone
             )
 
             if (!email && mkAuthEmail) {
