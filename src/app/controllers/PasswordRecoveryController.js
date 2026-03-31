@@ -241,11 +241,14 @@ class PasswordRecoveryController {
       tenant,
       `SELECT id, login, nome, email, celular, fone, cpf_cnpj
        FROM sis_cliente
-       WHERE REPLACE(REPLACE(REPLACE(cpf_cnpj, '.', ''), '-', ''), ' ', '') = :cpf
-          OR REPLACE(REPLACE(REPLACE(login, '.', ''), '-', ''), ' ', '') = :cpf
+       WHERE REPLACE(REPLACE(REPLACE(cpf_cnpj, '.', ''), '-', ''), ' ', '') = :cpf_cnpj
+          OR REPLACE(REPLACE(REPLACE(login, '.', ''), '-', ''), ' ', '') = :cpf_login
        ORDER BY id DESC
        LIMIT 1`,
-      { cpf: cleanCpf }
+      {
+        cpf_cnpj: cleanCpf,
+        cpf_login: cleanCpf
+      }
     )
 
     return result?.data?.[0] || null
