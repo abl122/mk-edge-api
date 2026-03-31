@@ -111,7 +111,7 @@ class PasswordRecoveryController {
           try {
             const directFields = await MkAuthAgentService.sendToAgent(
               tenant,
-              'SELECT login, email, func, celular, fone, telefone FROM sis_acesso WHERE login = :login LIMIT 1',
+              'SELECT login, email, func FROM sis_acesso WHERE login = :login LIMIT 1',
               { login }
             )
             mkAuthUser = directFields?.data?.[0] || null
