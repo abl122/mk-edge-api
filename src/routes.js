@@ -25,6 +25,64 @@ const TenantService = require('./app/services/TenantService');
 const { tenantMiddleware, optionalTenantMiddleware } = require('./app/middlewares/tenantMiddleware');
 const { authMiddleware } = require('./app/middlewares/authMiddleware');
 
+const normalizeBaseUrl = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(withProtocol);
+    return parsed.origin;
+  } catch {
+    return '';
+  }
+};
+
+const isLegacyUpdataOrigin = (value) => {
+  const origin = String(value || '').trim().toLowerCase();
+  return origin.includes('provedor.updata.com.br');
+};
+
+const resolveOriginFromAgentUrl = (agentUrl) => {
+  const raw = String(agentUrl || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    return new URL(withProtocol).origin;
+  } catch {
+    return '';
+  }
+};
+
+const resolveTenantBillingBaseUrl = (tenant) => {
+  const candidates = [
+    normalizeBaseUrl(tenant?.provedor?.website),
+    normalizeBaseUrl(tenant?.provedor?.dominio),
+    resolveOriginFromAgentUrl(tenant?.agente?.url),
+    normalizeBaseUrl(process.env.TENANT_URL),
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    // Evita fallback legado que estava gerando links estáticos incorretos.
+    if (isLegacyUpdataOrigin(candidate)) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return '';
+};
+
 // ==================== ROTAS PÚBLICAS ====================
 
 // ==================== ROTAS PÚBLICAS (SEM TENANT_ID) ====================
@@ -172,8 +230,8 @@ const listPublicProviders = async (req, res) => {
         apiKey: String(tenant?.agente?.token || ''),
         logo: tenant?.provedor?.logo || null,
         primaryColor: primaryColor ? String(primaryColor) : 'verde',
-        supportEmail: tenant?.provedor?.email ? String(tenant.provedor.email) : 'suporte@updata.com.br',
-        supportPhone: tenant?.provedor?.telefone ? String(tenant.provedor.telefone) : '(92) 99248-3445',
+        supportEmail: tenant?.provedor?.email ? String(tenant.provedor.email) : '',
+        supportPhone: tenant?.provedor?.telefone ? String(tenant.provedor.telefone) : '',
         active: true
       };
     });
@@ -1652,10 +1710,12 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
     
     for (const fatura of faturasPendentes) {
       const titleDate = fatura.datavenc ? new Date(fatura.datavenc).toLocaleDateString('pt-BR') : null;
-      const tenantUrl = process.env.TENANT_URL || 'https://provedor.updata.com.br';
+      const tenantUrl = resolveTenantBillingBaseUrl(req.tenant);
       
       // URL do boleto (formato antigo)
-      const linkBoleto = `${tenantUrl}/boleto/boleto.hhvm?titulo=${fatura.id}&contrato=${client.login}`;
+      const linkBoleto = tenantUrl
+        ? `${tenantUrl}/boleto/boleto.hhvm?titulo=${fatura.id}&contrato=${client.login}`
+        : '';
       
       // Formata linha digitável (remove formatação)
       const linhadig_limpa = (fatura.linhadig || '').replace(/[. ]/g, '');
@@ -1670,7 +1730,7 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
           
           if (qrPix && qrPix.qrcode) {
             const qrhash = crypto.createHash('md5').update(qrPix.qrcode).digest('hex');
-            const linkQrcode = `${tenantUrl}/boleto/qrcode/PIX.${qrhash}.png`;
+            const linkQrcode = tenantUrl ? `${tenantUrl}/boleto/qrcode/PIX.${qrhash}.png` : '';
             
             pixInfo = {
               qrcode: qrPix.qrcode,
