@@ -231,9 +231,13 @@ class PasswordRecoveryController {
     return PasswordRecoveryController.resolveTenantForRecovery(req, user)
   }
 
-  static async findClientByCpf(tenant, cpf) {
-    const cleanCpf = PasswordRecoveryController.normalizeCpf(cpf)
-    if (!cleanCpf || cleanCpf.length !== 11) {
+  static normalizeClientDocument(value) {
+    return String(value || '').replace(/\D/g, '')
+  }
+
+  static async findClientByDocument(tenant, document) {
+    const cleanDocument = PasswordRecoveryController.normalizeClientDocument(document)
+    if (!cleanDocument || ![11, 14].includes(cleanDocument.length)) {
       return null
     }
 
@@ -246,12 +250,16 @@ class PasswordRecoveryController {
        ORDER BY id DESC
        LIMIT 1`,
       {
-        cpf_cnpj: cleanCpf,
-        cpf_login: cleanCpf
+        cpf_cnpj: cleanDocument,
+        cpf_login: cleanDocument
       }
     )
 
     return result?.data?.[0] || null
+  }
+
+  static async findClientByCpf(tenant, cpf) {
+    return PasswordRecoveryController.findClientByDocument(tenant, cpf)
   }
 
   static async createClientLogin2FAToken({ tenant, login, code, method, contact }) {
@@ -946,16 +954,16 @@ class PasswordRecoveryController {
 
   /**
    * GET /api/auth/login-2fa/contacts
-   * Obter contatos mascarados do cliente por CPF
+   * Obter contatos mascarados do cliente por CPF/CNPJ
    */
   static async getClient2FAContacts(req, res) {
     try {
-      const { cpf } = req.query
+      const document = req.query?.document || req.query?.cpf || req.query?.cpfCnpj
 
-      if (!cpf) {
+      if (!document) {
         return res.status(400).json({
           success: false,
-          message: 'CPF é obrigatório'
+          message: 'CPF/CNPJ é obrigatório'
         })
       }
 
@@ -967,11 +975,11 @@ class PasswordRecoveryController {
         })
       }
 
-      const client = await PasswordRecoveryController.findClientByCpf(tenant, cpf)
+      const client = await PasswordRecoveryController.findClientByDocument(tenant, document)
       if (!client) {
         return res.status(404).json({
           success: false,
-          message: 'Cliente não encontrado para este CPF'
+          message: 'Cliente não encontrado para este CPF/CNPJ'
         })
       }
 
@@ -1006,13 +1014,14 @@ class PasswordRecoveryController {
    */
   static async requestClient2FACode(req, res) {
     try {
-      const { cpf, method } = req.body
+      const document = req.body?.document || req.body?.cpf || req.body?.cpfCnpj
+      const { method } = req.body
       const methodNormalized = String(method || '').trim().toLowerCase()
 
-      if (!cpf || !['email', 'sms'].includes(methodNormalized)) {
+      if (!document || !['email', 'sms'].includes(methodNormalized)) {
         return res.status(400).json({
           success: false,
-          message: 'CPF e método (email ou sms) são obrigatórios'
+          message: 'CPF/CNPJ e método (email ou sms) são obrigatórios'
         })
       }
 
@@ -1024,11 +1033,11 @@ class PasswordRecoveryController {
         })
       }
 
-      const client = await PasswordRecoveryController.findClientByCpf(tenant, cpf)
+      const client = await PasswordRecoveryController.findClientByDocument(tenant, document)
       if (!client) {
         return res.status(404).json({
           success: false,
-          message: 'Cliente não encontrado para este CPF'
+          message: 'Cliente não encontrado para este CPF/CNPJ'
         })
       }
 
@@ -1170,12 +1179,13 @@ class PasswordRecoveryController {
    */
   static async verifyClient2FACode(req, res) {
     try {
-      const { cpf, code } = req.body
+      const document = req.body?.document || req.body?.cpf || req.body?.cpfCnpj
+      const { code } = req.body
 
-      if (!cpf || !code) {
+      if (!document || !code) {
         return res.status(400).json({
           success: false,
-          message: 'CPF e código são obrigatórios'
+          message: 'CPF/CNPJ e código são obrigatórios'
         })
       }
 
@@ -1187,11 +1197,11 @@ class PasswordRecoveryController {
         })
       }
 
-      const client = await PasswordRecoveryController.findClientByCpf(tenant, cpf)
+      const client = await PasswordRecoveryController.findClientByDocument(tenant, document)
       if (!client) {
         return res.status(404).json({
           success: false,
-          message: 'Cliente não encontrado para este CPF'
+          message: 'Cliente não encontrado para este CPF/CNPJ'
         })
       }
 
