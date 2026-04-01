@@ -65,16 +65,10 @@ const resolveTenantBillingBaseUrl = (tenant) => {
     normalizeBaseUrl(tenant?.provedor?.website),
     normalizeBaseUrl(tenant?.provedor?.dominio),
     resolveOriginFromAgentUrl(tenant?.agente?.url),
-    normalizeBaseUrl(process.env.TENANT_URL),
   ];
 
   for (const candidate of candidates) {
     if (!candidate) {
-      continue;
-    }
-
-    // Evita fallback legado que estava gerando links estáticos incorretos.
-    if (isLegacyUpdataOrigin(candidate)) {
       continue;
     }
 
