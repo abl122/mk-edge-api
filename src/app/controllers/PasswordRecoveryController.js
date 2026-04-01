@@ -245,8 +245,8 @@ class PasswordRecoveryController {
       tenant,
       `SELECT id, login, nome, email, celular, fone, cpf_cnpj
        FROM sis_cliente
-       WHERE REPLACE(REPLACE(REPLACE(cpf_cnpj, '.', ''), '-', ''), ' ', '') = :cpf_cnpj
-          OR REPLACE(REPLACE(REPLACE(login, '.', ''), '-', ''), ' ', '') = :cpf_login
+       WHERE REPLACE(REPLACE(REPLACE(REPLACE(cpf_cnpj, '.', ''), '-', ''), '/', ''), ' ', '') = :cpf_cnpj
+         OR REPLACE(REPLACE(REPLACE(REPLACE(login, '.', ''), '-', ''), '/', ''), ' ', '') = :cpf_login
        ORDER BY id DESC
        LIMIT 1`,
       {
@@ -979,7 +979,7 @@ class PasswordRecoveryController {
       if (!client) {
         return res.status(404).json({
           success: false,
-          message: 'Cliente não encontrado para este CPF/CNPJ'
+          message: 'Cliente não localizado para o CPF/CNPJ'
         })
       }
 
@@ -1037,7 +1037,7 @@ class PasswordRecoveryController {
       if (!client) {
         return res.status(404).json({
           success: false,
-          message: 'Cliente não encontrado para este CPF/CNPJ'
+          message: 'Cliente não localizado para o CPF/CNPJ'
         })
       }
 
@@ -1201,7 +1201,7 @@ class PasswordRecoveryController {
       if (!client) {
         return res.status(404).json({
           success: false,
-          message: 'Cliente não encontrado para este CPF/CNPJ'
+          message: 'Cliente não localizado para o CPF/CNPJ'
         })
       }
 
