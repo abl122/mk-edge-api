@@ -2133,9 +2133,45 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
       return clean.replace(/^(\d{5})(\d{3})$/, '$1-$2');
     };
 
-    const dataEmissao = nfcomRow.emissao 
-      ? new Date(nfcomRow.emissao).toLocaleDateString('pt-BR')
-      : new Date().toLocaleDateString('pt-BR');
+    const formatarDataHora = (value) => {
+      if (!value) return '-';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    };
+
+    const formatarPeriodoReferencia = (value) => {
+      if (!value) return '-';
+      const [inicio, fim] = String(value).split('|');
+      const formatMesAno = (dateStr) => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        if (Number.isNaN(date.getTime())) return String(dateStr);
+        return date.toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' });
+      };
+      const inicioFmt = formatMesAno(inicio);
+      const fimFmt = formatMesAno(fim);
+      return inicioFmt && fimFmt ? `${inicioFmt} a ${fimFmt}` : String(value);
+    };
+
+    const formatarValor = (value) => parseFloat(value || 0).toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    const dataEmissao = formatarDataHora(nfcomRow.emissao || new Date());
+    const dataAutorizacao = formatarDataHora(opcoes?.dhRecbto || nfcomRow.emissao);
+    const periodoReferencia = formatarPeriodoReferencia(opcoes?.reftitulo);
+    const ambienteNormalizado = String(opcoes?.ambiente || '').toUpperCase();
+    const ambienteLabel = ambienteNormalizado.includes('HOMO') ? 'HOMOLOGAÇÃO' : 'PRODUÇÃO';
+    const badgeAmbienteClass = ambienteNormalizado.includes('HOMO') ? 'badge-danger' : 'badge-success';
 
     const tenantBaseUrl = resolveTenantBillingBaseUrl(req.tenant);
     const providerLogoUrl = (() => {
@@ -2171,42 +2207,40 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
     <title>DANFE-COM Nº ${escapeHtml(nfcomRow.numero)}/${escapeHtml(nfcomRow.serie)}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
-            background: #f5f5f5; 
-            padding: 5px;
-            font-size: 8pt;
-            line-height: 1.3;
-            color: #1a1a1a;
-            overflow-x: hidden;
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background: #ececec;
+            padding: 8px;
+            color: #1f1f1f;
+            font-size: 11px;
+            line-height: 1.35;
         }
         .container {
             width: 100%;
-            max-width: 210mm;
+            max-width: 780px;
             margin: 0 auto;
-            background: white;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            padding: 3mm;
-            border-radius: 8px;
-            overflow: hidden;
+            background: #f6f6f6;
+            border: 1px solid #cfd5dc;
+            padding: 6px;
         }
         .danfe-header {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            border-radius: 6px 6px 0 0;
-            overflow: hidden;
-            margin-bottom: 5px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 8px;
         }
         .header-row {
             display: flex;
+            gap: 8px;
             align-items: stretch;
-            gap: 0;
             flex-wrap: wrap;
         }
+        .header-left,
+        .header-center {
+            background: #fff;
+            border: 1px solid #d6dce3;
+            border-radius: 6px;
+        }
         .header-left {
-            flex: 0 0 120px;
+            flex: 0 0 140px;
             text-align: center;
-            background: white;
             padding: 8px;
             display: flex;
             align-items: center;
@@ -2215,157 +2249,173 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         .header-center {
             flex: 1;
             text-align: center;
-            padding: 8px 12px;
-            color: #2c3e50;
-            background: white;
+            padding: 10px 12px;
         }
         .header-center h1 {
-            font-size: 15pt;
-            font-weight: 700;
+            font-size: 20px;
+            color: #1f3f73;
             margin-bottom: 2px;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: #1e3c72;
+            letter-spacing: 0.5px;
         }
         .header-center .subtitle {
-            font-size: 7pt;
-            font-weight: 400;
-            margin-bottom: 1px;
-            color: #555;
+            font-size: 10px;
+            color: #444;
         }
         .header-center .modelo {
             display: inline-block;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            padding: 3px 10px;
-            border-radius: 15px;
-            font-size: 7pt;
-            font-weight: 600;
-            margin: 3px 0;
-            border: 1px solid #1e3c72;
-            color: white;
+            margin-top: 8px;
+            padding: 4px 12px;
+            border-radius: 999px;
+            background: #1f3f73;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 700;
         }
         .header-right {
-            flex: 0 0 180px;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            padding: 6px;
+            flex: 0 0 170px;
+            background: #294a7a;
+            border: 1px solid #1f3f68;
+            border-radius: 6px;
+            color: #fff;
+            padding: 8px;
             text-align: center;
         }
+        .qr-wrapper {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            padding: 8px;
+            background: #284a7b;
+            border-radius: 6px;
+            flex-wrap: wrap;
+        }
+        .qr-card,
+        .barcode-card {
+            background: #fff;
+            border-radius: 6px;
+            padding: 10px;
+        }
+        .qr-card {
+            flex: 0 0 96px;
+            text-align: center;
+        }
+        .barcode-card {
+            flex: 1 1 320px;
+            min-width: 0;
+        }
         .section {
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
-            margin-bottom: 5px;
+            border: 1px solid #d6dce3;
+            margin-bottom: 6px;
+            background: #fff;
             overflow: hidden;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            border-radius: 3px;
         }
         .section-title {
-            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            background: #2e4665;
             color: #fff;
-            padding: 4px 10px;
-            font-size: 8pt;
-            font-weight: 600;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
         .section-content {
-            padding: 6px;
-            background: #fafafa;
+            background: #fff;
         }
         .info-row {
             display: flex;
             flex-wrap: wrap;
-            border-bottom: 1px solid #e8e8e8;
-            min-height: 20px;
-            background: white;
-        }
-        .info-row:last-child {
-            border-bottom: none;
         }
         .info-field {
             flex: 1;
             min-width: 0;
-            padding: 4px 6px;
-            border-right: 1px solid #e8e8e8;
+            padding: 5px 8px;
+            border-right: 1px solid #e3e7eb;
+            border-bottom: 1px solid #e3e7eb;
+            min-height: 42px;
+        }
+        .info-row:last-child .info-field {
+            border-bottom: none;
         }
         .info-field:last-child {
             border-right: none;
         }
         .info-field.full-width {
             flex: 1 0 100%;
-            border-right: none;
         }
         .info-label {
-            font-size: 6pt;
-            color: #666;
-            text-transform: uppercase;
             display: block;
-            margin-bottom: 1px;
-            font-weight: 500;
-            letter-spacing: 0.3px;
+            font-size: 9px;
+            color: #5d6670;
+            text-transform: uppercase;
+            margin-bottom: 2px;
         }
         .info-value {
-            font-size: 8pt;
-            font-weight: 600;
-            color: #1a1a1a;
+            display: block;
+            font-size: 12px;
+            font-weight: 700;
+            color: #1f1f1f;
             word-break: break-word;
-            overflow-wrap: anywhere;
         }
         .table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 2px;
+        }
+        .table th,
+        .table td {
+            border: 1px solid #d9dfe5;
+            padding: 5px 6px;
+            font-size: 11px;
         }
         .table th {
-            background: #f0f0f0;
-            border: 1px solid #ddd;
-            padding: 2px 4px;
-            font-size: 7pt;
-            font-weight: bold;
+            background: #f1f3f5;
             text-align: left;
-        }
-        .table td {
-            border: 1px solid #ddd;
-            padding: 2px 4px;
-            font-size: 7pt;
         }
         .text-right { text-align: right; }
         .text-center { text-align: center; }
         .badge {
             display: inline-block;
             padding: 3px 10px;
-            border-radius: 10px;
-            font-size: 6pt;
-            font-weight: 600;
-            letter-spacing: 0.3px;
+            border-radius: 12px;
+            font-size: 9px;
+            font-weight: 700;
         }
         .badge-success {
-            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-            color: #155724;
-            border: 1px solid #b1dfbb;
+            background: #d8f0db;
+            color: #1d6b2d;
+            border: 1px solid #b8ddb9;
         }
         .badge-danger {
-            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+            background: #f8d7da;
+            color: #7b2029;
+            border: 1px solid #eab9bf;
         }
-        .actions { padding: 10px; text-align: center; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); margin-top: 5px; }
+        .actions {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            padding: 10px 0 2px;
+        }
+        .action-btn {
+            border: none;
+            background: linear-gradient(180deg, #6a5ae0 0%, #5441d8 100%);
+            color: #fff;
+            border-radius: 6px;
+            padding: 9px 16px;
+            font-size: 12px;
+            font-weight: 700;
+            box-shadow: 0 1px 4px rgba(84, 65, 216, 0.25);
+        }
         @media (max-width: 768px) {
-            body { padding: 0; background: #ffffff; font-size: 7pt; }
-            .container { max-width: 100%; padding: 4px; box-shadow: none; border-radius: 0; }
-            .header-left, .header-center, .header-right { flex: 1 1 100%; min-width: 100%; }
-            .header-left { padding-bottom: 0; }
-            .header-center { padding: 6px 8px; }
-            .header-center h1 { font-size: 12pt; letter-spacing: 1px; }
-            .header-right { min-width: 100%; padding: 6px 4px; }
-            .info-field,
-            .info-field.full-width { flex: 1 1 100% !important; width: 100% !important; border-right: none; border-bottom: 1px solid #e8e8e8; }
-            .info-row .info-field:last-child { border-bottom: none; }
-            .section-title { font-size: 7pt; padding: 4px 8px; }
-            .section-content { padding: 4px; }
-            .table th, .table td { font-size: 6.5pt; padding: 3px; }
+            body { padding: 0; background: #fff; }
+            .container { max-width: 100%; border: none; padding: 4px; }
+            .header-left, .header-center, .header-right, .qr-card, .barcode-card { flex: 1 1 100%; }
+            .info-field, .info-field.full-width { flex: 1 1 100% !important; width: 100% !important; border-right: none; }
+            .table th, .table td { font-size: 10px; }
         }
         @media print {
-            body { background: white; padding: 0; }
-            .container { box-shadow: none; padding: 2mm; max-width: 100%; }
+            body { background: #fff; padding: 0; }
+            .container { max-width: 100%; border: none; }
             .actions { display: none; }
         }
     </style>
@@ -2375,8 +2425,8 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         <div class="danfe-header">
             <div class="header-row">
                 <div class="header-left">
-                    <div style="height: 80px; width: 130px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 8px; overflow: hidden;">
-                        ${providerLogoUrl ? `<img src="${escapeHtml(providerLogoUrl)}" alt="Logo do provedor" style="max-width: 100%; max-height: 72px; object-fit: contain;">` : `<span style="font-size: 11pt; color: #666; font-weight: 600;">${escapeHtml(nfcomRow.provedor_nome || 'LOGO')}</span>`}
+                    <div style="height: 78px; width: 128px; display: flex; align-items: center; justify-content: center; background: #fff; border-radius: 4px; overflow: hidden;">
+                        ${providerLogoUrl ? `<img src="${escapeHtml(providerLogoUrl)}" alt="Logo do provedor" style="max-width: 100%; max-height: 74px; object-fit: contain;">` : `<span style="font-size: 16px; color: #666; font-weight: 700;">${escapeHtml(nfcomRow.provedor_nome || 'LOGO')}</span>`}
                     </div>
                 </div>
                 <div class="header-center">
@@ -2386,46 +2436,47 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
                     <div class="modelo">MODELO 62 / NFCom</div>
                 </div>
                 <div class="header-right">
-                    <div style="text-align: center; padding: 8px 12px; background: rgba(255,255,255,0.15); border-radius: 6px;">
-                        <div style="font-size: 7pt; color: rgba(255,255,255,0.8); text-transform: uppercase; margin-bottom: 3px;">NF-e</div>
-                        <div style="font-size: 11pt; font-weight: 700; color: white; line-height: 1.2;">Nº ${escapeHtml(String(nfcomRow.numero).padStart(9, '0'))}</div>
-                        <div style="font-size: 9pt; font-weight: 600; color: white; margin-top: 2px;">SÉRIE ${escapeHtml(nfcomRow.serie)}</div>
-                        <div style="margin-top: 8px; padding: 5px 8px; background: rgba(255,255,255,0.25); border-radius: 6px; font-size: 7pt; font-weight: 600; border: 1px solid rgba(255,255,255,0.3);">
-                            📅 ${dataEmissao}
+                    <div style="font-size: 10px; opacity: 0.9; text-transform: uppercase; margin-bottom: 4px;">NF-e</div>
+                    <div style="font-size: 28px; font-weight: 800; line-height: 1;">Nº ${escapeHtml(String(nfcomRow.numero).padStart(9, '0'))}</div>
+                    <div style="font-size: 18px; font-weight: 700; margin-top: 3px;">SÉRIE ${escapeHtml(nfcomRow.serie)}</div>
+                    <div style="margin-top: 10px; padding: 6px 8px; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); border-radius: 6px; font-size: 11px;">
+                        📅 ${escapeHtml(dataEmissao)}
+                    </div>
+                </div>
+            </div>
+            ${nfcomRow.chave ? `
+            <div class="qr-wrapper">
+                <div class="qr-card">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(nfcomRow.chave)}"
+                         alt="QR Code NFCom"
+                         style="width: 82px; height: 82px; display: block; margin: 0 auto;">
+                    <div style="font-size: 8px; color: #444; margin-top: 6px; line-height: 1.2;">
+                        <strong>CONSULTE</strong><br>
+                        dfe-portal.svrs.rs.gov.br
+                    </div>
+                </div>
+                <div class="barcode-card">
+                    <div style="text-align: center; padding: 8px 6px; background: #f2f4f7; border-radius: 4px; margin-bottom: 8px;">
+                        <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(nfcomRow.chave)}&code=Code128&translate-esc=on&unit=Fit&dpi=96&imagetype=Gif&rotation=0&color=%23000000&bgcolor=%23ffffff"
+                             alt="Código de Barras"
+                             style="width: 96%; height: 34px; display: block; margin: 0 auto;">
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 11px; color: #1f3f73; font-weight: 700; margin-bottom: 4px;">🔑 CHAVE DE ACESSO</div>
+                        <div style="font-family: 'Courier New', monospace; font-size: 12px; font-weight: 700; letter-spacing: 2px; background: #f7f8fa; padding: 8px 10px; border-radius: 4px; display: inline-block; max-width: 100%;">${escapeHtml(nfcomRow.chave)}</div>
+                        <div style="margin-top: 8px; display: flex; justify-content: center; gap: 6px; flex-wrap: wrap;">
+                            <span class="badge ${badgeAmbienteClass}">${escapeHtml(ambienteLabel)}</span>
+                            <span class="badge badge-success">DOCUMENTO COM VALOR FISCAL</span>
                         </div>
                     </div>
                 </div>
             </div>
-            <div style="height: 1px; background: rgba(255,255,255,0.3); margin: 8px 0;"></div>
-            <div style="display: flex; gap: 10px; padding: 0 8px 8px; flex-wrap: wrap;">
-                ${nfcomRow.chave ? `
-                <div style="flex: 0 1 120px; max-width: 120px; text-align: center; padding: 10px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(nfcomRow.chave)}" 
-                         alt="QR Code NFCom"
-                         style="border-radius: 6px; width: 100px; height: 100px; max-width: 100%;">
-                    <div style="font-size: 6pt; color: #555; margin-top: 6px; line-height: 1.3;">
-                        <strong style="color: #1e3c72;">📱 CONSULTE</strong><br>
-                        <span style="font-size: 5.5pt;">dfe-portal.svrs.rs.gov.br</span>
-                    </div>
-                </div>
-                <div style="flex: 1 1 280px; min-width: 0; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                    <div style="text-align: center; margin-bottom: 10px; padding: 8px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 6px;">
-                        <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(nfcomRow.chave)}&code=Code128&translate-esc=on&unit=Fit&dpi=96&imagetype=Gif&rotation=0&color=%23000000&bgcolor=%23ffffff" 
-                             alt="Código de Barras" 
-                             style="width: 95%; height: 30px; display: block; margin: 0 auto;">
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 7pt; color: #1e3c72; text-transform: uppercase; margin-bottom: 4px; font-weight: 700; letter-spacing: 0.5px;">🔑 CHAVE DE ACESSO</div>
-                        <div style="font-family: 'Courier New', monospace; font-size: 9pt; font-weight: 600; line-height: 1.5; color: #1a1a1a; background: #f8f9fa; padding: 6px 10px; border-radius: 4px; display: inline-block; letter-spacing: 2px;">${escapeHtml(nfcomRow.chave)}</div>
-                    </div>
-                </div>
-                ` : ''}
-            </div>
+            ` : ''}
         </div>
 
         <!-- Prestador -->
         <div class="section">
-            <div class="section-title">Prestador de Serviços</div>
+            <div class="section-title">Prestador de Serviços de Comunicação</div>
             <div class="section-content">
                 <div class="info-row">
                     <div class="info-field full-width">
@@ -2434,17 +2485,51 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
                     </div>
                 </div>
                 <div class="info-row">
-                    <div class="info-field" style="flex: 0 0 35%;">
+                    <div class="info-field full-width">
+                        <span class="info-label">Nome Fantasia</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_nome || nfcomRow.provedor_razao || 'Não informado')}</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <div class="info-field" style="flex: 0 0 38%;">
                         <span class="info-label">CNPJ</span>
                         <span class="info-value">${escapeHtml(formatarCPFCNPJ(nfcomRow.provedor_cnpj))}</span>
                     </div>
-                    <div class="info-field" style="flex: 0 0 25%;">
-                        <span class="info-label">IE</span>
+                    <div class="info-field" style="flex: 0 0 28%;">
+                        <span class="info-label">Inscrição Estadual</span>
                         <span class="info-value">${escapeHtml(nfcomRow.provedor_ie || 'ISENTO')}</span>
                     </div>
+                    <div class="info-field" style="flex: 0 0 20%;">
+                        <span class="info-label">Inscrição Municipal</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_im || '-')}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 14%;">
+                        <span class="info-label">UF</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_estado || '-')}</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <div class="info-field" style="flex: 0 0 70%;">
+                        <span class="info-label">Endereço</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_endereco || '-')}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 30%;">
+                        <span class="info-label">Bairro</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_bairro || '-')}</span>
+                    </div>
+                </div>
+                <div class="info-row">
                     <div class="info-field" style="flex: 0 0 40%;">
-                        <span class="info-label">Cidade/UF</span>
-                        <span class="info-value">${escapeHtml(nfcomRow.provedor_cidade || '' )}${nfcomRow.provedor_estado ? '/' + escapeHtml(nfcomRow.provedor_estado) : ''}</span>
+                        <span class="info-label">Município</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_cidade || '-')}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 25%;">
+                        <span class="info-label">CEP</span>
+                        <span class="info-value">${escapeHtml(formatarCEP(nfcomRow.provedor_cep))}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 35%;">
+                        <span class="info-label">Telefone</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_fone || '-')}</span>
                     </div>
                 </div>
             </div>
@@ -2461,43 +2546,41 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
                     </div>
                 </div>
                 <div class="info-row">
-                    <div class="info-field" style="flex: 0 0 35%;">
+                    <div class="info-field" style="flex: 0 0 34%;">
                         <span class="info-label">CPF/CNPJ</span>
                         <span class="info-value">${escapeHtml(formatarCPFCNPJ(nfcomRow.cliente_cpf_cnpj))}</span>
                     </div>
-                    <div class="info-field" style="flex: 0 0 30%;">
+                    <div class="info-field" style="flex: 0 0 33%;">
                         <span class="info-label">Telefone</span>
                         <span class="info-value">${escapeHtml(nfcomRow.cliente_fone || '-')}</span>
                     </div>
-                    <div class="info-field" style="flex: 0 0 35%;">
+                    <div class="info-field" style="flex: 0 0 33%;">
                         <span class="info-label">Celular</span>
                         <span class="info-value">${escapeHtml(nfcomRow.cliente_celular || '-')}</span>
                     </div>
                 </div>
                 <div class="info-row">
-                    <div class="info-field full-width">
-                        <span class="info-label">E-mail</span>
-                        <span class="info-value">${escapeHtml(nfcomRow.cliente_email || '-')}</span>
-                    </div>
-                </div>
-                <div class="info-row">
-                    <div class="info-field full-width">
+                    <div class="info-field" style="flex: 0 0 70%;">
                         <span class="info-label">Endereço</span>
                         <span class="info-value">${escapeHtml(clienteEnderecoCompleto || 'Não informado')}</span>
                     </div>
-                </div>
-                <div class="info-row">
-                    <div class="info-field" style="flex: 0 0 34%;">
+                    <div class="info-field" style="flex: 0 0 30%;">
                         <span class="info-label">Bairro</span>
                         <span class="info-value">${escapeHtml(nfcomRow.cliente_bairro || '-')}</span>
                     </div>
-                    <div class="info-field" style="flex: 0 0 33%;">
-                        <span class="info-label">Cidade</span>
+                </div>
+                <div class="info-row">
+                    <div class="info-field" style="flex: 0 0 40%;">
+                        <span class="info-label">Município</span>
                         <span class="info-value">${escapeHtml(nfcomRow.cliente_cidade || '-')}</span>
                     </div>
-                    <div class="info-field" style="flex: 0 0 33%;">
+                    <div class="info-field" style="flex: 0 0 25%;">
                         <span class="info-label">CEP</span>
                         <span class="info-value">${escapeHtml(formatarCEP(nfcomRow.cliente_cep))}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 35%;">
+                        <span class="info-label">E-mail</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.cliente_email || '-')}</span>
                     </div>
                 </div>
             </div>
@@ -2505,12 +2588,12 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
 
         <!-- Itens -->
         <div class="section">
-            <div class="section-title">Discriminação dos Serviços</div>
+            <div class="section-title">Discriminação dos Serviços Prestados</div>
             <div class="section-content">
                 <table class="table">
                     <thead>
                         <tr>
-                            <th style="width: 70%;">Descrição</th>
+                            <th style="width: 70%;">Descrição do Serviço</th>
                             <th style="width: 15%; text-align: center;">Qtd.</th>
                             <th style="width: 15%; text-align: right;">Valor (R$)</th>
                         </tr>
@@ -2520,7 +2603,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
                         <tr>
                             <td>${escapeHtml(item.descricao || 'Serviço')}</td>
                             <td class="text-center">${escapeHtml(String(item.quantidade || 1))}</td>
-                            <td class="text-right">${parseFloat(item.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td class="text-right">${formatarValor(item.total || 0)}</td>
                         </tr>
                         `).join('') : '<tr><td colspan="3" class="text-center">Nenhum item encontrado</td></tr>'}
                     </tbody>
@@ -2530,28 +2613,28 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
 
         <!-- Totais -->
         <div class="section">
-            <div class="section-title">Valores Totais</div>
+            <div class="section-title">Valores Totais e Tributos</div>
             <div class="section-content">
                 <div class="info-row">
                     <div class="info-field">
                         <span class="info-label">Valor dos Serviços</span>
-                        <span class="info-value">R$ ${parseFloat(opcoes.total_itens || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span class="info-value">R$ ${formatarValor(opcoes.total_itens || 0)}</span>
                     </div>
                     <div class="info-field">
-                        <span class="info-label">ICMS</span>
-                        <span class="info-value">R$ ${parseFloat(opcoes.total_icms || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span class="info-label">Valor ICMS</span>
+                        <span class="info-value">R$ ${formatarValor(opcoes.total_icms || 0)}</span>
                     </div>
                     <div class="info-field">
-                        <span class="info-label">PIS</span>
-                        <span class="info-value">R$ ${parseFloat(opcoes.total_pis || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span class="info-label">Valor PIS</span>
+                        <span class="info-value">R$ ${formatarValor(opcoes.total_pis || 0)}</span>
                     </div>
                     <div class="info-field">
-                        <span class="info-label">COFINS</span>
-                        <span class="info-value">R$ ${parseFloat(opcoes.total_cofins || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span class="info-label">Valor COFINS</span>
+                        <span class="info-value">R$ ${formatarValor(opcoes.total_cofins || 0)}</span>
                     </div>
-                    <div class="info-field" style="background: #f0f0f0;">
-                        <span class="info-label">Total</span>
-                        <span class="info-value" style="font-size: 10pt;"><strong>R$ ${parseFloat(opcoes.total_itens || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                    <div class="info-field" style="background: #f6f7f9;">
+                        <span class="info-label">Valor Total da NFCom</span>
+                        <span class="info-value" style="font-size: 16px;">R$ ${formatarValor(opcoes.total_itens || 0)}</span>
                     </div>
                 </div>
             </div>
@@ -2562,22 +2645,37 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
             <div class="section-title">Dados Fiscais</div>
             <div class="section-content">
                 <div class="info-row">
-                    <div class="info-field">
-                        <span class="info-label">Protocolo</span>
+                    <div class="info-field" style="flex: 0 0 33%;">
+                        <span class="info-label">Protocolo de Autorização</span>
                         <span class="info-value">${escapeHtml(nfcomRow.protocolo || 'Não autorizada')}</span>
                     </div>
-                    <div class="info-field">
+                    <div class="info-field" style="flex: 0 0 22%;">
+                        <span class="info-label">Data de Autorização</span>
+                        <span class="info-value">${escapeHtml(dataAutorizacao)}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 25%;">
+                        <span class="info-label">Período de Referência</span>
+                        <span class="info-value">${escapeHtml(periodoReferencia)}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 20%;">
                         <span class="info-label">Status</span>
                         <span class="info-value">
-                            ${nfcomRow.status === 'cancelado' 
-                                ? '<span class="badge badge-danger">Cancelada</span>' 
-                                : nfcomRow.protocolo 
-                                    ? '<span class="badge badge-success">Autorizada</span>' 
+                            ${nfcomRow.status === 'cancelado'
+                                ? '<span class="badge badge-danger">Cancelada</span>'
+                                : nfcomRow.protocolo
+                                    ? '<span class="badge badge-success">Autorizada</span>'
                                     : '<span class="badge">Aguardando</span>'}
                         </span>
                     </div>
                 </div>
             </div>
+        </div>
+
+        <div class="actions">
+            <button class="action-btn" onclick="window.print()">🖨️ Imprimir</button>
+            <button class="action-btn" onclick="alert('Baixar XML indisponível nesta visualização')">📥 Baixar XML</button>
+            <button class="action-btn" onclick="alert('Visualização XML indisponível nesta tela')">📄 Ver XML</button>
+            <button class="action-btn" onclick="history.back()">✖ Fechar</button>
         </div>
     </div>
 </body>
