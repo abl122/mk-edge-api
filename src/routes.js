@@ -1882,37 +1882,22 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
           n.opcoes,
           n.itens,
           n.obs,
-          n.data_sincronizacao,
           p.nome AS provedor_nome,
-          p.razao_social AS provedor_razao,
+          p.razao AS provedor_razao,
           p.cnpj AS provedor_cnpj,
           p.ie AS provedor_ie,
-          p.im AS provedor_im,
           p.endereco AS provedor_endereco,
           p.bairro AS provedor_bairro,
           p.cidade AS provedor_cidade,
           p.estado AS provedor_estado,
           p.cep AS provedor_cep,
-          p.fone AS provedor_fone,
-          c.nome AS cliente_nome,
-          c.cpf_cnpj AS cliente_cpf_cnpj,
-          c.email AS cliente_email,
-          c.fone AS cliente_fone,
-          c.celular AS cliente_celular,
-          c.endereco_res AS cliente_endereco,
-          c.bairro_res AS cliente_bairro,
-          c.cidade_res AS cliente_cidade,
-          c.estado AS cliente_estado,
-          c.cep_res AS cliente_cep
+          p.fone AS provedor_fone
         FROM sis_nfcom n
         LEFT JOIN sis_provedor p ON 1=1
-        LEFT JOIN sis_cliente c ON c.login = (
-          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
-        )
         WHERE n.idmka = ?
         LIMIT 1
       `,
-      [uuidLanc, uuidLanc]
+      [uuidLanc]
     );
 
     const nfcomRow = nfcomResult?.data?.[0];
@@ -1960,7 +1945,6 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
         provedor_razao: String(nfcomRow.provedor_razao || ''),
         provedor_cnpj: String(nfcomRow.provedor_cnpj || ''),
         provedor_ie: String(nfcomRow.provedor_ie || ''),
-        provedor_im: String(nfcomRow.provedor_im || ''),
         provedor_endereco: String(nfcomRow.provedor_endereco || ''),
         provedor_bairro: String(nfcomRow.provedor_bairro || ''),
         provedor_cidade: String(nfcomRow.provedor_cidade || ''),
@@ -1968,17 +1952,17 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
         provedor_cep: String(nfcomRow.provedor_cep || ''),
         provedor_fone: String(nfcomRow.provedor_fone || ''),
 
-        // Cliente
-        cliente_nome: String(nfcomRow.cliente_nome || 'Cliente'),
-        cliente_cpf_cnpj: String(nfcomRow.cliente_cpf_cnpj || ''),
-        cliente_email: String(nfcomRow.cliente_email || ''),
-        cliente_fone: String(nfcomRow.cliente_fone || ''),
-        cliente_celular: String(nfcomRow.cliente_celular || ''),
-        cliente_endereco: String(nfcomRow.cliente_endereco || ''),
-        cliente_bairro: String(nfcomRow.cliente_bairro || ''),
-        cliente_cidade: String(nfcomRow.cliente_cidade || ''),
-        cliente_estado: String(nfcomRow.cliente_estado || ''),
-        cliente_cep: String(nfcomRow.cliente_cep || ''),
+        // Cliente (dados padrão por enquanto)
+        cliente_nome: 'Cliente',
+        cliente_cpf_cnpj: '',
+        cliente_email: '',
+        cliente_fone: '',
+        cliente_celular: '',
+        cliente_endereco: '',
+        cliente_bairro: '',
+        cliente_cidade: '',
+        cliente_estado: '',
+        cliente_cep: '',
       },
       opcoes,
       itens: Array.isArray(itens) ? itens : [],
@@ -2022,35 +2006,21 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
           n.itens,
           n.obs,
           p.nome AS provedor_nome,
-          p.razao_social AS provedor_razao,
+          p.razao AS provedor_razao,
           p.cnpj AS provedor_cnpj,
           p.ie AS provedor_ie,
-          p.im AS provedor_im,
           p.endereco AS provedor_endereco,
           p.bairro AS provedor_bairro,
           p.cidade AS provedor_cidade,
           p.estado AS provedor_estado,
           p.cep AS provedor_cep,
-          p.fone AS provedor_fone,
-          c.nome AS cliente_nome,
-          c.cpf_cnpj AS cliente_cpf_cnpj,
-          c.email AS cliente_email,
-          c.fone AS cliente_fone,
-          c.celular AS cliente_celular,
-          c.endereco_res AS cliente_endereco,
-          c.bairro_res AS cliente_bairro,
-          c.cidade_res AS cliente_cidade,
-          c.estado AS cliente_estado,
-          c.cep_res AS cliente_cep
+          p.fone AS provedor_fone
         FROM sis_nfcom n
         LEFT JOIN sis_provedor p ON 1=1
-        LEFT JOIN sis_cliente c ON c.login = (
-          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
-        )
         WHERE n.idmka = ?
         LIMIT 1
       `,
-      [uuidLanc, uuidLanc]
+      [uuidLanc]
     );
 
     const nfcomRow = nfcomResult?.data?.[0];
