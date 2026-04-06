@@ -2729,10 +2729,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         </div>
 
         <div class="actions">
-            <button class="action-btn" onclick="window.print()">🖨️ Imprimir</button>
-            <button class="action-btn" onclick="alert('Baixar XML indisponível nesta visualização')">📥 Baixar XML</button>
-            <button class="action-btn" onclick="alert('Visualização XML indisponível nesta tela')">📄 Ver XML</button>
-            <button class="action-btn" onclick="history.back()">✖ Fechar</button>
+            <button class="action-btn" onclick="if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage('download-pdf'); } else { window.print(); }">📥 Baixar PDF</button>
         </div>
     </div>
 </body>
