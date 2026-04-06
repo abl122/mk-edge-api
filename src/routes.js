@@ -1881,19 +1881,8 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
           n.protocolo,
           n.opcoes,
           n.itens,
-          n.obs,
-          p.nome AS provedor_nome,
-          p.razao AS provedor_razao,
-          p.cnpj AS provedor_cnpj,
-          p.ie AS provedor_ie,
-          p.endereco AS provedor_endereco,
-          p.bairro AS provedor_bairro,
-          p.cidade AS provedor_cidade,
-          p.estado AS provedor_estado,
-          p.cep AS provedor_cep,
-          p.fone AS provedor_fone
+          n.obs
         FROM sis_nfcom n
-        LEFT JOIN sis_provedor p ON 1=1
         WHERE n.titulo = ?
         LIMIT 1
       `,
