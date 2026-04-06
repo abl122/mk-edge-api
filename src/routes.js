@@ -1870,8 +1870,8 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
       req.tenant,
       `
         SELECT
-          n.uuid_nfcom,
-          n.idnka,
+          n.uuid_lanc,
+          n.idnfca,
           n.titulo,
           n.numero,
           n.serie,
@@ -1881,10 +1881,10 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
           n.protocolo,
           n.opcoes,
           n.itens,
-          n.cancelado,
+          n.obs,
           n.data_sincronizacao,
           p.nome AS provedor_nome,
-          p.razao AS provedor_razao,
+          p.razao_social AS provedor_razao,
           p.cnpj AS provedor_cnpj,
           p.ie AS provedor_ie,
           p.im AS provedor_im,
@@ -1899,22 +1899,20 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
           c.email AS cliente_email,
           c.fone AS cliente_fone,
           c.celular AS cliente_celular,
-          c.endereco AS cliente_endereco,
-          c.bairro AS cliente_bairro,
-          c.cidade AS cliente_cidade,
+          c.endereco_res AS cliente_endereco,
+          c.bairro_res AS cliente_bairro,
+          c.cidade_res AS cliente_cidade,
           c.estado AS cliente_estado,
-          c.cep AS cliente_cep
+          c.cep_res AS cliente_cep
         FROM sis_nfcom n
         LEFT JOIN sis_provedor p ON 1=1
         LEFT JOIN sis_cliente c ON c.login = (
-          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
+          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = n.uuid_lanc LIMIT 1
         )
-        WHERE n.idnka = (
-          SELECT l.uuid_lanc FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
-        )
+        WHERE n.uuid_lanc = ?
         LIMIT 1
       `,
-      [uuidLanc, uuidLanc]
+      [uuidLanc]
     );
 
     const nfcomRow = nfcomResult?.data?.[0];
@@ -1947,14 +1945,14 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
     // 3. Retornar dados estruturados
     return res.json({
       nfcom: {
-        uuid_nfcom: String(nfcomRow.uuid_nfcom || ''),
+        uuid_lanc: String(nfcomRow.uuid_lanc || ''),
         numero: String(nfcomRow.numero || ''),
         serie: String(nfcomRow.serie || ''),
         chave: String(nfcomRow.chave || ''),
         emissao: nfcomRow.emissao ? String(nfcomRow.emissao) : null,
         status: String(nfcomRow.status || 'PROCESSAMENTO'),
         protocolo: String(nfcomRow.protocolo || ''),
-        cancelado: String(nfcomRow.cancelado || 'nao'),
+        obs: String(nfcomRow.obs || ''),
         
         // Provedor
         provedor_nome: String(nfcomRow.provedor_nome || 'Provedor'),
@@ -2010,8 +2008,8 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
       req.tenant,
       `
         SELECT
-          n.uuid_nfcom,
-          n.idnka,
+          n.uuid_lanc,
+          n.idnfca,
           n.titulo,
           n.numero,
           n.serie,
@@ -2021,9 +2019,9 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
           n.protocolo,
           n.opcoes,
           n.itens,
-          n.cancelado,
+          n.obs,
           p.nome AS provedor_nome,
-          p.razao AS provedor_razao,
+          p.razao_social AS provedor_razao,
           p.cnpj AS provedor_cnpj,
           p.ie AS provedor_ie,
           p.im AS provedor_im,
@@ -2038,22 +2036,20 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
           c.email AS cliente_email,
           c.fone AS cliente_fone,
           c.celular AS cliente_celular,
-          c.endereco AS cliente_endereco,
-          c.bairro AS cliente_bairro,
-          c.cidade AS cliente_cidade,
+          c.endereco_res AS cliente_endereco,
+          c.bairro_res AS cliente_bairro,
+          c.cidade_res AS cliente_cidade,
           c.estado AS cliente_estado,
-          c.cep AS cliente_cep
+          c.cep_res AS cliente_cep
         FROM sis_nfcom n
         LEFT JOIN sis_provedor p ON 1=1
         LEFT JOIN sis_cliente c ON c.login = (
-          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
+          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = n.uuid_lanc LIMIT 1
         )
-        WHERE n.idnka = (
-          SELECT l.uuid_lanc FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
-        )
+        WHERE n.uuid_lanc = ?
         LIMIT 1
       `,
-      [uuidLanc, uuidLanc]
+      [uuidLanc]
     );
 
     const nfcomRow = nfcomResult?.data?.[0];
@@ -2470,7 +2466,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
                     <div class="info-field">
                         <span class="info-label">Status</span>
                         <span class="info-value">
-                            ${nfcomRow.cancelado === 'sim' 
+                            ${nfcomRow.status === 'cancelado' 
                                 ? '<span class="badge badge-danger">Cancelada</span>' 
                                 : nfcomRow.protocolo 
                                     ? '<span class="badge badge-success">Autorizada</span>' 
