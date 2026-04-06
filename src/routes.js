@@ -1871,7 +1871,7 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
       `
         SELECT
           n.uuid_nfcom,
-          n.idnfka,
+          n.idmka,
           n.titulo,
           n.numero,
           n.serie,
@@ -1909,7 +1909,7 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
         LEFT JOIN sis_cliente c ON c.login = (
           SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
         )
-        WHERE n.idnfka = ?
+        WHERE n.idmka = ?
         LIMIT 1
       `,
       [uuidLanc, uuidLanc]
@@ -1946,7 +1946,7 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
     return res.json({
       nfcom: {
         uuid_nfcom: String(nfcomRow.uuid_nfcom || ''),
-        idnfka: String(nfcomRow.idnfka || ''),
+        idmka: String(nfcomRow.idmka || ''),
         numero: String(nfcomRow.numero || ''),
         serie: String(nfcomRow.serie || ''),
         chave: String(nfcomRow.chave || ''),
@@ -2010,7 +2010,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
       `
         SELECT
           n.uuid_nfcom,
-          n.idnfka,
+          n.idmka,
           n.titulo,
           n.numero,
           n.serie,
@@ -2047,7 +2047,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         LEFT JOIN sis_cliente c ON c.login = (
           SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
         )
-        WHERE n.idnfka = ?
+        WHERE n.idmka = ?
         LIMIT 1
       `,
       [uuidLanc, uuidLanc]
