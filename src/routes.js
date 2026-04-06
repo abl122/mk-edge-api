@@ -1937,12 +1937,21 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
 
     if (nfcomRow.itens) {
       try {
-        itens = typeof nfcomRow.itens === 'string' ? JSON.parse(nfcomRow.itens) : Array.isArray(nfcomRow.itens) ? nfcomRow.itens : [];
+        const parsedItens = typeof nfcomRow.itens === 'string' ? JSON.parse(nfcomRow.itens) : nfcomRow.itens;
+        itens = Array.isArray(parsedItens)
+          ? parsedItens
+          : (parsedItens && typeof parsedItens === 'object' ? Object.values(parsedItens) : []);
       } catch (e) {
         console.warn('[NFCOM] Erro ao parsear itens:', e.message);
         itens = [];
       }
     }
+
+    const clienteTextoNfcom = String(opcoes?.cliente || '').trim();
+    const clienteNomeNfcom = String(
+      opcoes?.cliente_nome || (clienteTextoNfcom.includes('|') ? clienteTextoNfcom.split('|').slice(1).join('|') : '')
+    ).trim();
+    const provedorCnpjNfcom = String(opcoes?.cnpj || '').trim();
 
     // 3. Retornar dados estruturados
     return res.json({
@@ -1960,7 +1969,7 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
         // Provedor
         provedor_nome: String(nfcomRow.provedor_nome || req.tenant?.provedor?.nome || 'Provedor'),
         provedor_razao: String(nfcomRow.provedor_razao || req.tenant?.provedor?.razao_social || req.tenant?.provedor?.nome || ''),
-        provedor_cnpj: String(nfcomRow.provedor_cnpj || req.tenant?.provedor?.cnpj || ''),
+        provedor_cnpj: String(nfcomRow.provedor_cnpj || provedorCnpjNfcom || req.tenant?.provedor?.cnpj || ''),
         provedor_ie: String(nfcomRow.provedor_ie || ''),
         provedor_endereco: String(nfcomRow.provedor_endereco || ''),
         provedor_bairro: String(nfcomRow.provedor_bairro || ''),
@@ -1973,7 +1982,7 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
 
         // Cliente / tomador
         cliente_login: String(nfcomRow.cliente_login || ''),
-        cliente_nome: String(nfcomRow.cliente_nome || 'Não informado'),
+        cliente_nome: String(nfcomRow.cliente_nome || clienteNomeNfcom || 'Não informado'),
         cliente_cpf_cnpj: String(nfcomRow.cliente_cpf_cnpj || ''),
         cliente_email: String(nfcomRow.cliente_email || ''),
         cliente_fone: String(nfcomRow.cliente_fone || ''),
@@ -2081,11 +2090,20 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
 
     if (nfcomRow.itens) {
       try {
-        itens = typeof nfcomRow.itens === 'string' ? JSON.parse(nfcomRow.itens) : Array.isArray(nfcomRow.itens) ? nfcomRow.itens : [];
+        const parsedItens = typeof nfcomRow.itens === 'string' ? JSON.parse(nfcomRow.itens) : nfcomRow.itens;
+        itens = Array.isArray(parsedItens)
+          ? parsedItens
+          : (parsedItens && typeof parsedItens === 'object' ? Object.values(parsedItens) : []);
       } catch (e) {
         itens = [];
       }
     }
+
+    const clienteTextoNfcom = String(opcoes?.cliente || '').trim();
+    const clienteNomeNfcom = String(
+      opcoes?.cliente_nome || (clienteTextoNfcom.includes('|') ? clienteTextoNfcom.split('|').slice(1).join('|') : '')
+    ).trim();
+    const provedorCnpjNfcom = String(opcoes?.cnpj || '').trim();
 
     // Helper functions
     const escapeHtml = (str) => {
@@ -2125,14 +2143,18 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
       if (/^https?:\/\//i.test(explicitLogo)) {
         return explicitLogo;
       }
+      if (explicitLogo && tenantBaseUrl) {
+        return `${tenantBaseUrl}/${explicitLogo.replace(/^\/+/, '')}`;
+      }
       return tenantBaseUrl ? `${tenantBaseUrl}/mkfiles/logo.jpg` : '';
     })();
 
     nfcomRow.provedor_nome = String(nfcomRow.provedor_nome || req.tenant?.provedor?.nome || 'Provedor');
     nfcomRow.provedor_razao = String(nfcomRow.provedor_razao || req.tenant?.provedor?.razao_social || nfcomRow.provedor_nome || 'Provedor');
-    nfcomRow.provedor_cnpj = String(nfcomRow.provedor_cnpj || req.tenant?.provedor?.cnpj || '');
+    nfcomRow.provedor_cnpj = String(nfcomRow.provedor_cnpj || provedorCnpjNfcom || req.tenant?.provedor?.cnpj || '');
     nfcomRow.provedor_fone = String(nfcomRow.provedor_fone || req.tenant?.provedor?.telefone || '');
     nfcomRow.provedor_site = String(nfcomRow.provedor_site || req.tenant?.provedor?.website || '');
+    nfcomRow.cliente_nome = String(nfcomRow.cliente_nome || clienteNomeNfcom || 'Não informado');
 
     const clienteEnderecoCompleto = [
       nfcomRow.cliente_endereco,
