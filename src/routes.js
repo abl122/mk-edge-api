@@ -78,6 +78,15 @@ const resolveTenantBillingBaseUrl = (tenant) => {
   return '';
 };
 
+const formatCurrencyBrl = (value) => {
+  const numeric = Number.parseFloat(String(value ?? 0).replace(',', '.'));
+  const safeValue = Number.isFinite(numeric) ? numeric : 0;
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(safeValue);
+};
+
 // ==================== ROTAS PÚBLICAS ====================
 
 // ==================== ROTAS PÚBLICAS (SEM TENANT_ID) ====================
@@ -1671,6 +1680,819 @@ routes.get('/cto/:lat/:lng', CTOController.index);  // Alias com lat/lng
 routes.get('/cto', CTOController.show);             // CTO específica
 
 /**
+ * Buscar dados do recibo manual por ID da fatura
+ * GET /invoices/manual-receipt/:invoice_id
+ */
+routes.get('/invoices/manual-receipt/:invoice_id', tenantMiddleware(), authMiddleware, async (req, res) => {
+  const invoiceId = String(req.params.invoice_id || '').trim();
+
+  if (!invoiceId) {
+    return res.status(400).json({ error: 'ID da fatura é obrigatório' });
+  }
+
+  try {
+    const result = await MkAuthAgentService.sendToAgent(
+      req.tenant,
+      `
+        SELECT
+          l.id                           AS fatura_id,
+          l.login                        AS cliente_login,
+          l.status,
+          l.obs,
+          l.referencia,
+          l.datavenc,
+          l.datapag,
+          l.valor,
+          l.valorpag,
+          l.remvalor,
+          l.recibo,
+          l.coletor,
+          c.nome                         AS cliente_nome,
+          c.cpf_cnpj                     AS cliente_cpf_cnpj,
+          c.email                        AS cliente_email,
+          c.fone                         AS cliente_fone,
+          c.celular                      AS cliente_celular,
+          p.nome                         AS provedor_nome,
+          p.razao                        AS provedor_razao,
+          p.cnpj                         AS provedor_cnpj,
+          p.endereco                     AS provedor_endereco,
+          p.bairro                       AS provedor_bairro,
+          p.cidade                       AS provedor_cidade,
+          p.estado                       AS provedor_estado,
+          p.fone                         AS provedor_fone,
+          p.site                         AS provedor_site
+        FROM sis_lanc l
+        LEFT JOIN sis_cliente c
+               ON c.login = l.login
+              AND c.cli_ativado = 's'
+        CROSS JOIN sis_provedor p
+        WHERE l.id = ?
+          AND l.deltitulo = 0
+        LIMIT 1
+      `,
+      [invoiceId]
+    );
+
+    const row = result?.data?.[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Recibo não encontrado para esta fatura' });
+    }
+
+    return res.json({
+      faturaId: String(row.fatura_id || invoiceId),
+      clienteLogin: String(row.cliente_login || '-'),
+      status: String(row.status || '-'),
+      observacao: String(row.obs || '-'),
+      referencia: String(row.referencia || '-'),
+      vencimento: row.datavenc ? String(row.datavenc) : null,
+      pagamentoEm: row.datapag ? String(row.datapag) : null,
+      valor: formatCurrencyBrl(row.valor),
+      valorPago: formatCurrencyBrl(row.valorpag != null && row.valorpag !== '' ? row.valorpag : row.valor),
+      valorRemanescente: formatCurrencyBrl(row.remvalor),
+      recibo: String(row.recibo || '-'),
+      coletor: String(row.coletor || '-'),
+      clienteNome: String(row.cliente_nome || 'Cliente'),
+      clienteCpfCnpj: String(row.cliente_cpf_cnpj || '-'),
+      clienteEmail: String(row.cliente_email || '-'),
+      clienteFone: String(row.cliente_fone || '-'),
+      clienteCelular: String(row.cliente_celular || '-'),
+      provedorNome: String(row.provedor_nome || 'Provedor'),
+      provedorRazao: String(row.provedor_razao || '-'),
+      provedorCnpj: String(row.provedor_cnpj || '-'),
+      provedorEndereco: String(row.provedor_endereco || '-'),
+      provedorBairro: String(row.provedor_bairro || '-'),
+      provedorCidade: String(row.provedor_cidade || '-'),
+      provedorEstado: String(row.provedor_estado || '-'),
+      provedorFone: String(row.provedor_fone || '-'),
+      provedorSite: String(row.provedor_site || '-'),
+    });
+  } catch (error) {
+    console.error('[Invoices][ManualReceipt]', error.message);
+    return res.status(500).json({ error: 'Não foi possível gerar o recibo manual' });
+  }
+});
+
+/**
+ * Buscar HTML remoto de comprovante (recibo/boleto)
+ * GET /invoices/receipt-html/:encoded_url
+ * Faz fetch do HTML remoto com retry e headers apropriados
+ */
+routes.get('/invoices/receipt-html/:encoded_url', tenantMiddleware(), authMiddleware, async (req, res) => {
+  try {
+    const encodedUrl = String(req.params.encoded_url || '').trim();
+    if (!encodedUrl) {
+      return res.status(400).json({ error: 'URL é obrigatória' });
+    }
+
+    let receiptUrl;
+    try {
+      receiptUrl = Buffer.from(encodedUrl, 'base64').toString('utf-8');
+    } catch {
+      receiptUrl = decodeURIComponent(encodedUrl);
+    }
+
+    if (!receiptUrl || !receiptUrl.startsWith('http')) {
+      return res.status(400).json({ error: 'URL inválida' });
+    }
+
+    // Fetch com retry e headers apropriados
+    let response;
+    let lastError;
+    
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+        response = await fetch(receiptUrl, {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'MK-Edge-API/1.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          break;
+        } else if (response.status === 403 || response.status === 401) {
+          return res.status(403).json({ error: 'Acesso negado ao servidor remoto' });
+        }
+
+        lastError = `HTTP ${response.status}`;
+      } catch (error) {
+        lastError = error.message;
+        if (attempt < 2) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        }
+      }
+    }
+
+    if (!response || !response.ok) {
+      console.error('[Invoices][ReceiptHtml] Erro no fetch:', lastError);
+      return res.status(502).json({ error: 'Não foi possível acessar o recibo remoto' });
+    }
+
+    const html = await response.text();
+    if (!String(html || '').trim()) {
+      return res.status(404).json({ error: 'HTML vazio do servidor remoto' });
+    }
+
+    return res.json({ html });
+  } catch (error) {
+    console.error('[Invoices][ReceiptHtml]', error.message);
+    return res.status(500).json({ error: 'Erro ao buscar recibo remoto' });
+  }
+});
+
+/**
+ * Buscar dados da NFCom para visualização DANFE-COM
+ * GET /nfcom/by-uuid/:uuid_lanc
+ * Retorna dados completos da NFCom (nfcom + provedor + cliente + itens + opcoes)
+ */
+routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, async (req, res) => {
+  const uuidLanc = String(req.params.uuid_lanc || '').trim();
+
+  if (!uuidLanc) {
+    return res.status(400).json({ error: 'UUID da fatura é obrigatório' });
+  }
+
+  try {
+    const MkAuthAgentService = require('./app/services/MkAuthAgentService');
+
+    // 1. Buscar dados da NFCom
+    const nfcomResult = await MkAuthAgentService.sendToAgent(
+      req.tenant,
+      `
+        SELECT
+          n.uuid_nfcom,
+          n.idnka,
+          n.titulo,
+          n.numero,
+          n.serie,
+          n.emissao,
+          n.status,
+          n.chave,
+          n.protocolo,
+          n.opcoes,
+          n.itens,
+          n.cancelado,
+          n.data_sincronizacao,
+          p.nome AS provedor_nome,
+          p.razao AS provedor_razao,
+          p.cnpj AS provedor_cnpj,
+          p.ie AS provedor_ie,
+          p.im AS provedor_im,
+          p.endereco AS provedor_endereco,
+          p.bairro AS provedor_bairro,
+          p.cidade AS provedor_cidade,
+          p.estado AS provedor_estado,
+          p.cep AS provedor_cep,
+          p.fone AS provedor_fone,
+          c.nome AS cliente_nome,
+          c.cpf_cnpj AS cliente_cpf_cnpj,
+          c.email AS cliente_email,
+          c.fone AS cliente_fone,
+          c.celular AS cliente_celular,
+          c.endereco AS cliente_endereco,
+          c.bairro AS cliente_bairro,
+          c.cidade AS cliente_cidade,
+          c.estado AS cliente_estado,
+          c.cep AS cliente_cep
+        FROM sis_nfcom n
+        LEFT JOIN sis_provedor p ON 1=1
+        LEFT JOIN sis_cliente c ON c.login = (
+          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
+        )
+        WHERE n.idnka = (
+          SELECT l.uuid_lanc FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
+        )
+        LIMIT 1
+      `,
+      [uuidLanc, uuidLanc]
+    );
+
+    const nfcomRow = nfcomResult?.data?.[0];
+    if (!nfcomRow) {
+      return res.status(404).json({ error: 'NFCom não encontrada para esta fatura' });
+    }
+
+    // 2. Parsear opcoes e itens (JSON)
+    let opcoes = {};
+    let itens = [];
+
+    if (nfcomRow.opcoes) {
+      try {
+        opcoes = typeof nfcomRow.opcoes === 'string' ? JSON.parse(nfcomRow.opcoes) : nfcomRow.opcoes;
+      } catch (e) {
+        console.warn('[NFCOM] Erro ao parsear opcoes:', e.message);
+        opcoes = {};
+      }
+    }
+
+    if (nfcomRow.itens) {
+      try {
+        itens = typeof nfcomRow.itens === 'string' ? JSON.parse(nfcomRow.itens) : Array.isArray(nfcomRow.itens) ? nfcomRow.itens : [];
+      } catch (e) {
+        console.warn('[NFCOM] Erro ao parsear itens:', e.message);
+        itens = [];
+      }
+    }
+
+    // 3. Retornar dados estruturados
+    return res.json({
+      nfcom: {
+        uuid_nfcom: String(nfcomRow.uuid_nfcom || ''),
+        numero: String(nfcomRow.numero || ''),
+        serie: String(nfcomRow.serie || ''),
+        chave: String(nfcomRow.chave || ''),
+        emissao: nfcomRow.emissao ? String(nfcomRow.emissao) : null,
+        status: String(nfcomRow.status || 'PROCESSAMENTO'),
+        protocolo: String(nfcomRow.protocolo || ''),
+        cancelado: String(nfcomRow.cancelado || 'nao'),
+        
+        // Provedor
+        provedor_nome: String(nfcomRow.provedor_nome || 'Provedor'),
+        provedor_razao: String(nfcomRow.provedor_razao || ''),
+        provedor_cnpj: String(nfcomRow.provedor_cnpj || ''),
+        provedor_ie: String(nfcomRow.provedor_ie || ''),
+        provedor_im: String(nfcomRow.provedor_im || ''),
+        provedor_endereco: String(nfcomRow.provedor_endereco || ''),
+        provedor_bairro: String(nfcomRow.provedor_bairro || ''),
+        provedor_cidade: String(nfcomRow.provedor_cidade || ''),
+        provedor_estado: String(nfcomRow.provedor_estado || ''),
+        provedor_cep: String(nfcomRow.provedor_cep || ''),
+        provedor_fone: String(nfcomRow.provedor_fone || ''),
+
+        // Cliente
+        cliente_nome: String(nfcomRow.cliente_nome || 'Cliente'),
+        cliente_cpf_cnpj: String(nfcomRow.cliente_cpf_cnpj || ''),
+        cliente_email: String(nfcomRow.cliente_email || ''),
+        cliente_fone: String(nfcomRow.cliente_fone || ''),
+        cliente_celular: String(nfcomRow.cliente_celular || ''),
+        cliente_endereco: String(nfcomRow.cliente_endereco || ''),
+        cliente_bairro: String(nfcomRow.cliente_bairro || ''),
+        cliente_cidade: String(nfcomRow.cliente_cidade || ''),
+        cliente_estado: String(nfcomRow.cliente_estado || ''),
+        cliente_cep: String(nfcomRow.cliente_cep || ''),
+      },
+      opcoes,
+      itens: Array.isArray(itens) ? itens : [],
+    });
+  } catch (error) {
+    console.error('[NFCOM][ByUuid]', error.message);
+    return res.status(500).json({ error: 'Erro ao buscar dados da NFCom' });
+  }
+});
+
+/**
+ * Renderizar HTML da DANFE-COM para visualização
+ * GET /nfcom/html/:uuid_lanc
+ * Retorna HTML pronto para visualizar/imprimir
+ */
+routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (req, res) => {
+  const uuidLanc = String(req.params.uuid_lanc || '').trim();
+
+  if (!uuidLanc) {
+    return res.status(400).json({ error: 'UUID da fatura é obrigatório' });
+  }
+
+  try {
+    const MkAuthAgentService = require('./app/services/MkAuthAgentService');
+
+    // Buscar dados da NFCom
+    const nfcomResult = await MkAuthAgentService.sendToAgent(
+      req.tenant,
+      `
+        SELECT
+          n.uuid_nfcom,
+          n.idnka,
+          n.titulo,
+          n.numero,
+          n.serie,
+          n.emissao,
+          n.status,
+          n.chave,
+          n.protocolo,
+          n.opcoes,
+          n.itens,
+          n.cancelado,
+          p.nome AS provedor_nome,
+          p.razao AS provedor_razao,
+          p.cnpj AS provedor_cnpj,
+          p.ie AS provedor_ie,
+          p.im AS provedor_im,
+          p.endereco AS provedor_endereco,
+          p.bairro AS provedor_bairro,
+          p.cidade AS provedor_cidade,
+          p.estado AS provedor_estado,
+          p.cep AS provedor_cep,
+          p.fone AS provedor_fone,
+          c.nome AS cliente_nome,
+          c.cpf_cnpj AS cliente_cpf_cnpj,
+          c.email AS cliente_email,
+          c.fone AS cliente_fone,
+          c.celular AS cliente_celular,
+          c.endereco AS cliente_endereco,
+          c.bairro AS cliente_bairro,
+          c.cidade AS cliente_cidade,
+          c.estado AS cliente_estado,
+          c.cep AS cliente_cep
+        FROM sis_nfcom n
+        LEFT JOIN sis_provedor p ON 1=1
+        LEFT JOIN sis_cliente c ON c.login = (
+          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
+        )
+        WHERE n.idnka = (
+          SELECT l.uuid_lanc FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
+        )
+        LIMIT 1
+      `,
+      [uuidLanc, uuidLanc]
+    );
+
+    const nfcomRow = nfcomResult?.data?.[0];
+    if (!nfcomRow) {
+      return res.status(404).send('<h1>NFCom não encontrada</h1>');
+    }
+
+    // Parsear opcoes e itens
+    let opcoes = {};
+    let itens = [];
+
+    if (nfcomRow.opcoes) {
+      try {
+        opcoes = typeof nfcomRow.opcoes === 'string' ? JSON.parse(nfcomRow.opcoes) : nfcomRow.opcoes;
+      } catch (e) {
+        opcoes = {};
+      }
+    }
+
+    if (nfcomRow.itens) {
+      try {
+        itens = typeof nfcomRow.itens === 'string' ? JSON.parse(nfcomRow.itens) : Array.isArray(nfcomRow.itens) ? nfcomRow.itens : [];
+      } catch (e) {
+        itens = [];
+      }
+    }
+
+    // Helper functions
+    const escapeHtml = (str) => {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    };
+
+    const formatarCPFCNPJ = (cpf_cnpj) => {
+      if (!cpf_cnpj) return 'Não informado';
+      const clean = cpf_cnpj.replace(/\D/g, '');
+      if (clean.length === 11) {
+        return clean.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+      } else if (clean.length === 14) {
+        return clean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+      }
+      return cpf_cnpj;
+    };
+
+    const formatarCEP = (cep) => {
+      if (!cep) return '-';
+      const clean = cep.replace(/\D/g, '');
+      return clean.replace(/^(\d{5})(\d{3})$/, '$1-$2');
+    };
+
+    const dataEmissao = nfcomRow.emissao 
+      ? new Date(nfcomRow.emissao).toLocaleDateString('pt-BR')
+      : new Date().toLocaleDateString('pt-BR');
+
+    // Gerar HTML
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DANFE-COM Nº ${escapeHtml(nfcomRow.numero)}/${escapeHtml(nfcomRow.serie)}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f5f5; 
+            padding: 5px;
+            font-size: 8pt;
+            line-height: 1.3;
+        }
+        .container {
+            max-width: 210mm;
+            margin: 0 auto;
+            background: white;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            padding: 3mm;
+        }
+        .danfe-header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            border-radius: 6px 6px 0 0;
+            overflow: hidden;
+            margin-bottom: 5px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .header-row {
+            display: flex;
+            align-items: stretch;
+            gap: 0;
+        }
+        .header-left {
+            flex: 0 0 120px;
+            text-align: center;
+            background: white;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .header-center {
+            flex: 1;
+            text-align: center;
+            padding: 8px 12px;
+            color: #2c3e50;
+            background: white;
+        }
+        .header-center h1 {
+            font-size: 15pt;
+            font-weight: 700;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #1e3c72;
+        }
+        .header-center .subtitle {
+            font-size: 7pt;
+            font-weight: 400;
+            margin-bottom: 1px;
+            color: #555;
+        }
+        .header-center .modelo {
+            display: inline-block;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-size: 7pt;
+            font-weight: 600;
+            margin: 3px 0;
+            border: 1px solid #1e3c72;
+            color: white;
+        }
+        .header-right {
+            flex: 0 0 180px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 6px;
+            text-align: center;
+        }
+        .section {
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .section-title {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: #fff;
+            padding: 4px 10px;
+            font-size: 8pt;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .section-content {
+            padding: 6px;
+            background: #fafafa;
+        }
+        .info-row {
+            display: flex;
+            border-bottom: 1px solid #e8e8e8;
+            min-height: 20px;
+            background: white;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-field {
+            flex: 1;
+            padding: 4px 6px;
+            border-right: 1px solid #e8e8e8;
+        }
+        .info-field:last-child {
+            border-right: none;
+        }
+        .info-field.full-width {
+            flex: 1 0 100%;
+            border-right: none;
+        }
+        .info-label {
+            font-size: 6pt;
+            color: #666;
+            text-transform: uppercase;
+            display: block;
+            margin-bottom: 1px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+        .info-value {
+            font-size: 8pt;
+            font-weight: 600;
+            color: #1a1a1a;
+            word-break: break-word;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 2px;
+        }
+        .table th {
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            padding: 2px 4px;
+            font-size: 7pt;
+            font-weight: bold;
+            text-align: left;
+        }
+        .table td {
+            border: 1px solid #ddd;
+            padding: 2px 4px;
+            font-size: 7pt;
+        }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 6pt;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        .badge-success {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            color: #155724;
+            border: 1px solid #b1dfbb;
+        }
+        .badge-danger {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .actions { padding: 10px; text-align: center; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); margin-top: 5px; }
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; padding: 2mm; max-width: 100%; }
+            .actions { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="danfe-header">
+            <div class="header-row">
+                <div class="header-left">
+                    <div style="height: 80px; width: 130px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 8px;">
+                        <span style="font-size: 11pt; color: #666; font-weight: 600;">LOGO</span>
+                    </div>
+                </div>
+                <div class="header-center">
+                    <h1>DANFE-COM</h1>
+                    <div class="subtitle">Documento Auxiliar da Nota Fiscal</div>
+                    <div class="subtitle">Fatura de Serviço de Comunicação Eletrônica</div>
+                    <div class="modelo">MODELO 62 / NFCom</div>
+                </div>
+                <div class="header-right">
+                    <div style="text-align: center; padding: 8px 12px; background: rgba(255,255,255,0.15); border-radius: 6px;">
+                        <div style="font-size: 7pt; color: rgba(255,255,255,0.8); text-transform: uppercase; margin-bottom: 3px;">NF-e</div>
+                        <div style="font-size: 11pt; font-weight: 700; color: white; line-height: 1.2;">Nº ${escapeHtml(String(nfcomRow.numero).padStart(9, '0'))}</div>
+                        <div style="font-size: 9pt; font-weight: 600; color: white; margin-top: 2px;">SÉRIE ${escapeHtml(nfcomRow.serie)}</div>
+                        <div style="margin-top: 8px; padding: 5px 8px; background: rgba(255,255,255,0.25); border-radius: 6px; font-size: 7pt; font-weight: 600; border: 1px solid rgba(255,255,255,0.3);">
+                            📅 ${dataEmissao}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div style="height: 1px; background: rgba(255,255,255,0.3); margin: 8px 0;"></div>
+            <div style="display: flex; gap: 10px; padding: 0 8px 8px;">
+                ${nfcomRow.chave ? `
+                <div style="flex: 0 0 120px; text-align: center; padding: 10px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(nfcomRow.chave)}" 
+                         alt="QR Code NFCom"
+                         style="border-radius: 6px; width: 100px; height: 100px;">
+                    <div style="font-size: 6pt; color: #555; margin-top: 6px; line-height: 1.3;">
+                        <strong style="color: #1e3c72;">📱 CONSULTE</strong><br>
+                        <span style="font-size: 5.5pt;">dfe-portal.svrs.rs.gov.br</span>
+                    </div>
+                </div>
+                <div style="flex: 1; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                    <div style="text-align: center; margin-bottom: 10px; padding: 8px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 6px;">
+                        <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(nfcomRow.chave)}&code=Code128&translate-esc=on&unit=Fit&dpi=96&imagetype=Gif&rotation=0&color=%23000000&bgcolor=%23ffffff" 
+                             alt="Código de Barras" 
+                             style="width: 95%; height: 30px; display: block; margin: 0 auto;">
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 7pt; color: #1e3c72; text-transform: uppercase; margin-bottom: 4px; font-weight: 700; letter-spacing: 0.5px;">🔑 CHAVE DE ACESSO</div>
+                        <div style="font-family: 'Courier New', monospace; font-size: 9pt; font-weight: 600; line-height: 1.5; color: #1a1a1a; background: #f8f9fa; padding: 6px 10px; border-radius: 4px; display: inline-block; letter-spacing: 2px;">${escapeHtml(nfcomRow.chave)}</div>
+                    </div>
+                </div>
+                ` : ''}
+            </div>
+        </div>
+
+        <!-- Prestador -->
+        <div class="section">
+            <div class="section-title">Prestador de Serviços</div>
+            <div class="section-content">
+                <div class="info-row">
+                    <div class="info-field full-width">
+                        <span class="info-label">Razão Social</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_razao || 'Não informado')}</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <div class="info-field" style="flex: 0 0 35%;">
+                        <span class="info-label">CNPJ</span>
+                        <span class="info-value">${escapeHtml(formatarCPFCNPJ(nfcomRow.provedor_cnpj))}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 25%;">
+                        <span class="info-label">IE</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_ie || 'ISENTO')}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 40%;">
+                        <span class="info-label">Cidade/UF</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.provedor_cidade || '' )}${nfcomRow.provedor_estado ? '/' + escapeHtml(nfcomRow.provedor_estado) : ''}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tomador -->
+        <div class="section">
+            <div class="section-title">Tomador do Serviço</div>
+            <div class="section-content">
+                <div class="info-row">
+                    <div class="info-field full-width">
+                        <span class="info-label">Nome/Razão Social</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.cliente_nome || 'Não informado')}</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <div class="info-field" style="flex: 0 0 35%;">
+                        <span class="info-label">CPF/CNPJ</span>
+                        <span class="info-value">${escapeHtml(formatarCPFCNPJ(nfcomRow.cliente_cpf_cnpj))}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 30%;">
+                        <span class="info-label">Telefone</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.cliente_fone || '-')}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 35%;">
+                        <span class="info-label">Celular</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.cliente_celular || '-')}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Itens -->
+        <div class="section">
+            <div class="section-title">Discriminação dos Serviços</div>
+            <div class="section-content">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th style="width: 70%;">Descrição</th>
+                            <th style="width: 15%; text-align: center;">Qtd.</th>
+                            <th style="width: 15%; text-align: right;">Valor (R$)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${itens.length > 0 ? itens.map(item => `
+                        <tr>
+                            <td>${escapeHtml(item.descricao || 'Serviço')}</td>
+                            <td class="text-center">${escapeHtml(String(item.quantidade || 1))}</td>
+                            <td class="text-right">${parseFloat(item.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                        `).join('') : '<tr><td colspan="3" class="text-center">Nenhum item encontrado</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Totais -->
+        <div class="section">
+            <div class="section-title">Valores Totais</div>
+            <div class="section-content">
+                <div class="info-row">
+                    <div class="info-field">
+                        <span class="info-label">Valor dos Serviços</span>
+                        <span class="info-value">R$ ${parseFloat(opcoes.total_itens || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div class="info-field">
+                        <span class="info-label">ICMS</span>
+                        <span class="info-value">R$ ${parseFloat(opcoes.total_icms || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div class="info-field">
+                        <span class="info-label">PIS</span>
+                        <span class="info-value">R$ ${parseFloat(opcoes.total_pis || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div class="info-field">
+                        <span class="info-label">COFINS</span>
+                        <span class="info-value">R$ ${parseFloat(opcoes.total_cofins || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div class="info-field" style="background: #f0f0f0;">
+                        <span class="info-label">Total</span>
+                        <span class="info-value" style="font-size: 10pt;"><strong>R$ ${parseFloat(opcoes.total_itens || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status -->
+        <div class="section">
+            <div class="section-title">Dados Fiscais</div>
+            <div class="section-content">
+                <div class="info-row">
+                    <div class="info-field">
+                        <span class="info-label">Protocolo</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.protocolo || 'Não autorizada')}</span>
+                    </div>
+                    <div class="info-field">
+                        <span class="info-label">Status</span>
+                        <span class="info-value">
+                            ${nfcomRow.cancelado === 'sim' 
+                                ? '<span class="badge badge-danger">Cancelada</span>' 
+                                : nfcomRow.protocolo 
+                                    ? '<span class="badge badge-success">Autorizada</span>' 
+                                    : '<span class="badge">Aguardando</span>'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('[NFCOM][HTML]', error.message);
+    res.status(500).send('<h1>Erro ao gerar DANFE-COM</h1>');
+  }
+});
+
+/**
  * Buscar faturas por client_id
  * GET /invoices/:client_id
  * Retorna faturas com formato compatível com app (com boleto, pix, etc)
@@ -1788,6 +2610,27 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
     const paidInvoices = faturasPagas.map(fatura => {
       const titleDate = fatura.datavenc ? new Date(fatura.datavenc).toLocaleDateString('pt-BR') : null;
       const paidDate = fatura.datapag ? new Date(fatura.datapag).toLocaleDateString('pt-BR') : null;
+      const tenantUrl = resolveTenantBillingBaseUrl(req.tenant);
+      const uuidLanc = String(fatura.uuid_lanc || '').trim();
+      const collectorRaw = String(fatura.coletor || '').trim();
+      const collectorUrl =
+        collectorRaw.startsWith('http://') || collectorRaw.startsWith('https://')
+          ? collectorRaw
+          : '';
+      const receiptByContratoUrl =
+        tenantUrl && uuidLanc && client.login
+          ? `${tenantUrl}/central/recibo.hhvm?titulo=${encodeURIComponent(uuidLanc)}&contrato=${encodeURIComponent(client.login)}`
+          : '';
+      const receiptBoletoUrl =
+        tenantUrl && uuidLanc
+          ? `${tenantUrl}/boleto/recibo.hhvm?titulo=${encodeURIComponent(uuidLanc)}`
+          : '';
+      const fallbackReceiptUrl =
+        tenantUrl && uuidLanc
+          ? `${tenantUrl}/central/recibo.hhvm?titulo=${encodeURIComponent(uuidLanc)}`
+          : '';
+      const directReceiptUrl = collectorUrl && /recibo/i.test(collectorUrl) ? collectorUrl : '';
+      const noteFiscalUrl = collectorUrl && !/recibo/i.test(collectorUrl) ? collectorUrl : '';
       
       return {
         title: titleDate,
@@ -1798,7 +2641,10 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
           valor: String(fatura.valor || 0),
           status: fatura.status || 'pago',
           descricao: fatura.obs || `Fatura ${titleDate}`,
-          paidAt: paidDate
+          paidAt: paidDate,
+          coletor: collectorRaw || null,
+          receipt_url: directReceiptUrl || receiptByContratoUrl || receiptBoletoUrl || fallbackReceiptUrl || '',
+          nota_fiscal_url: noteFiscalUrl || ''
         }
       };
     });
