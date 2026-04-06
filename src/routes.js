@@ -1819,11 +1819,22 @@ routes.get('/invoices/receipt-html/:encoded_url', tenantMiddleware(), authMiddle
       return res.status(400).json({ error: 'URL é obrigatória' });
     }
 
-    let receiptUrl;
+    let receiptUrl = '';
+
     try {
-      receiptUrl = Buffer.from(encodedUrl, 'base64').toString('utf-8');
+      const decodedUrl = decodeURIComponent(encodedUrl);
+      if (/^https?:\/\//i.test(decodedUrl)) {
+        receiptUrl = decodedUrl;
+      }
     } catch {
-      receiptUrl = decodeURIComponent(encodedUrl);
+      // ignora e tenta base64 abaixo
+    }
+
+    if (!receiptUrl) {
+      const base64DecodedUrl = Buffer.from(encodedUrl, 'base64').toString('utf-8');
+      if (/^https?:\/\//i.test(base64DecodedUrl)) {
+        receiptUrl = base64DecodedUrl;
+      }
     }
 
     if (!receiptUrl || !receiptUrl.startsWith('http')) {
