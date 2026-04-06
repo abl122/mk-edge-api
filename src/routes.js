@@ -2728,9 +2728,6 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
             </div>
         </div>
 
-        <div class="actions">
-            <button class="action-btn" onclick="if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage('download-pdf'); } else { window.print(); }">📥 Baixar PDF</button>
-        </div>
     </div>
 </body>
 </html>`;
