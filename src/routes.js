@@ -1865,7 +1865,7 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
   try {
     const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 
-    // 1. Buscar dados da NFCom - usando titulo (que armazena uuid_lanc)
+    // 1. Buscar dados da NFCom e do tomador
     const nfcomResult = await MkAuthAgentService.sendToAgent(
       req.tenant,
       `
@@ -1881,8 +1881,36 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
           n.protocolo,
           n.opcoes,
           n.itens,
-          n.obs
+          n.obs,
+          l.login AS cliente_login,
+          c.nome AS cliente_nome,
+          c.cpf_cnpj AS cliente_cpf_cnpj,
+          c.email AS cliente_email,
+          c.fone AS cliente_fone,
+          c.celular AS cliente_celular,
+          c.endereco_res AS cliente_endereco,
+          c.numero_res AS cliente_numero,
+          c.complemento_res AS cliente_complemento,
+          c.bairro_res AS cliente_bairro,
+          c.cidade_res AS cliente_cidade,
+          c.cep_res AS cliente_cep,
+          p.nome AS provedor_nome,
+          p.razao AS provedor_razao,
+          p.cnpj AS provedor_cnpj,
+          p.ie AS provedor_ie,
+          p.endereco AS provedor_endereco,
+          p.bairro AS provedor_bairro,
+          p.cidade AS provedor_cidade,
+          p.estado AS provedor_estado,
+          p.cep AS provedor_cep,
+          p.fone AS provedor_fone,
+          p.site AS provedor_site
         FROM sis_nfcom n
+        LEFT JOIN sis_lanc l
+               ON l.uuid_lanc = n.titulo
+        LEFT JOIN sis_cliente c
+               ON c.login = l.login
+        CROSS JOIN sis_provedor p
         WHERE n.titulo = ?
         LIMIT 1
       `,
@@ -1930,28 +1958,33 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
         obs: String(nfcomRow.obs || ''),
         
         // Provedor
-        provedor_nome: String(nfcomRow.provedor_nome || 'Provedor'),
-        provedor_razao: String(nfcomRow.provedor_razao || ''),
-        provedor_cnpj: String(nfcomRow.provedor_cnpj || ''),
+        provedor_nome: String(nfcomRow.provedor_nome || req.tenant?.provedor?.nome || 'Provedor'),
+        provedor_razao: String(nfcomRow.provedor_razao || req.tenant?.provedor?.razao_social || req.tenant?.provedor?.nome || ''),
+        provedor_cnpj: String(nfcomRow.provedor_cnpj || req.tenant?.provedor?.cnpj || ''),
         provedor_ie: String(nfcomRow.provedor_ie || ''),
         provedor_endereco: String(nfcomRow.provedor_endereco || ''),
         provedor_bairro: String(nfcomRow.provedor_bairro || ''),
         provedor_cidade: String(nfcomRow.provedor_cidade || ''),
         provedor_estado: String(nfcomRow.provedor_estado || ''),
         provedor_cep: String(nfcomRow.provedor_cep || ''),
-        provedor_fone: String(nfcomRow.provedor_fone || ''),
+        provedor_fone: String(nfcomRow.provedor_fone || req.tenant?.provedor?.telefone || ''),
+        provedor_site: String(nfcomRow.provedor_site || req.tenant?.provedor?.website || ''),
+        provedor_logo_url: String(req.tenant?.provedor?.logo || ''),
 
-        // Cliente (dados padrão por enquanto)
-        cliente_nome: 'Cliente',
-        cliente_cpf_cnpj: '',
-        cliente_email: '',
-        cliente_fone: '',
-        cliente_celular: '',
-        cliente_endereco: '',
-        cliente_bairro: '',
-        cliente_cidade: '',
-        cliente_estado: '',
-        cliente_cep: '',
+        // Cliente / tomador
+        cliente_login: String(nfcomRow.cliente_login || ''),
+        cliente_nome: String(nfcomRow.cliente_nome || 'Não informado'),
+        cliente_cpf_cnpj: String(nfcomRow.cliente_cpf_cnpj || ''),
+        cliente_email: String(nfcomRow.cliente_email || ''),
+        cliente_fone: String(nfcomRow.cliente_fone || ''),
+        cliente_celular: String(nfcomRow.cliente_celular || ''),
+        cliente_endereco: String(nfcomRow.cliente_endereco || ''),
+        cliente_numero: String(nfcomRow.cliente_numero || ''),
+        cliente_complemento: String(nfcomRow.cliente_complemento || ''),
+        cliente_bairro: String(nfcomRow.cliente_bairro || ''),
+        cliente_cidade: String(nfcomRow.cliente_cidade || ''),
+        cliente_estado: String(nfcomRow.cliente_estado || ''),
+        cliente_cep: String(nfcomRow.cliente_cep || ''),
       },
       opcoes,
       itens: Array.isArray(itens) ? itens : [],
@@ -1977,7 +2010,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
   try {
     const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 
-    // Buscar dados da NFCom
+    // Buscar dados da NFCom, provedor e tomador
     const nfcomResult = await MkAuthAgentService.sendToAgent(
       req.tenant,
       `
@@ -1994,6 +2027,18 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
           n.opcoes,
           n.itens,
           n.obs,
+          l.login AS cliente_login,
+          c.nome AS cliente_nome,
+          c.cpf_cnpj AS cliente_cpf_cnpj,
+          c.email AS cliente_email,
+          c.fone AS cliente_fone,
+          c.celular AS cliente_celular,
+          c.endereco_res AS cliente_endereco,
+          c.numero_res AS cliente_numero,
+          c.complemento_res AS cliente_complemento,
+          c.bairro_res AS cliente_bairro,
+          c.cidade_res AS cliente_cidade,
+          c.cep_res AS cliente_cep,
           p.nome AS provedor_nome,
           p.razao AS provedor_razao,
           p.cnpj AS provedor_cnpj,
@@ -2003,9 +2048,14 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
           p.cidade AS provedor_cidade,
           p.estado AS provedor_estado,
           p.cep AS provedor_cep,
-          p.fone AS provedor_fone
+          p.fone AS provedor_fone,
+          p.site AS provedor_site
         FROM sis_nfcom n
-        LEFT JOIN sis_provedor p ON 1=1
+        LEFT JOIN sis_lanc l
+               ON l.uuid_lanc = n.titulo
+        LEFT JOIN sis_cliente c
+               ON c.login = l.login
+        CROSS JOIN sis_provedor p
         WHERE n.titulo = ?
         LIMIT 1
       `,
@@ -2069,6 +2119,27 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
       ? new Date(nfcomRow.emissao).toLocaleDateString('pt-BR')
       : new Date().toLocaleDateString('pt-BR');
 
+    const tenantBaseUrl = resolveTenantBillingBaseUrl(req.tenant);
+    const providerLogoUrl = (() => {
+      const explicitLogo = String(req.tenant?.provedor?.logo || '').trim();
+      if (/^https?:\/\//i.test(explicitLogo)) {
+        return explicitLogo;
+      }
+      return tenantBaseUrl ? `${tenantBaseUrl}/mkfiles/logo.jpg` : '';
+    })();
+
+    nfcomRow.provedor_nome = String(nfcomRow.provedor_nome || req.tenant?.provedor?.nome || 'Provedor');
+    nfcomRow.provedor_razao = String(nfcomRow.provedor_razao || req.tenant?.provedor?.razao_social || nfcomRow.provedor_nome || 'Provedor');
+    nfcomRow.provedor_cnpj = String(nfcomRow.provedor_cnpj || req.tenant?.provedor?.cnpj || '');
+    nfcomRow.provedor_fone = String(nfcomRow.provedor_fone || req.tenant?.provedor?.telefone || '');
+    nfcomRow.provedor_site = String(nfcomRow.provedor_site || req.tenant?.provedor?.website || '');
+
+    const clienteEnderecoCompleto = [
+      nfcomRow.cliente_endereco,
+      nfcomRow.cliente_numero,
+      nfcomRow.cliente_complemento,
+    ].filter(Boolean).join(', ');
+
     // Gerar HTML
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -2084,13 +2155,18 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
             padding: 5px;
             font-size: 8pt;
             line-height: 1.3;
+            color: #1a1a1a;
+            overflow-x: hidden;
         }
         .container {
+            width: 100%;
             max-width: 210mm;
             margin: 0 auto;
             background: white;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             padding: 3mm;
+            border-radius: 8px;
+            overflow: hidden;
         }
         .danfe-header {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -2103,6 +2179,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
             display: flex;
             align-items: stretch;
             gap: 0;
+            flex-wrap: wrap;
         }
         .header-left {
             flex: 0 0 120px;
@@ -2173,6 +2250,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         }
         .info-row {
             display: flex;
+            flex-wrap: wrap;
             border-bottom: 1px solid #e8e8e8;
             min-height: 20px;
             background: white;
@@ -2182,6 +2260,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         }
         .info-field {
             flex: 1;
+            min-width: 0;
             padding: 4px 6px;
             border-right: 1px solid #e8e8e8;
         }
@@ -2206,6 +2285,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
             font-weight: 600;
             color: #1a1a1a;
             word-break: break-word;
+            overflow-wrap: anywhere;
         }
         .table {
             width: 100%;
@@ -2246,6 +2326,21 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
             border: 1px solid #f5c6cb;
         }
         .actions { padding: 10px; text-align: center; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); margin-top: 5px; }
+        @media (max-width: 768px) {
+            body { padding: 0; background: #ffffff; font-size: 7pt; }
+            .container { max-width: 100%; padding: 4px; box-shadow: none; border-radius: 0; }
+            .header-left, .header-center, .header-right { flex: 1 1 100%; min-width: 100%; }
+            .header-left { padding-bottom: 0; }
+            .header-center { padding: 6px 8px; }
+            .header-center h1 { font-size: 12pt; letter-spacing: 1px; }
+            .header-right { min-width: 100%; padding: 6px 4px; }
+            .info-field,
+            .info-field.full-width { flex: 1 1 100% !important; width: 100% !important; border-right: none; border-bottom: 1px solid #e8e8e8; }
+            .info-row .info-field:last-child { border-bottom: none; }
+            .section-title { font-size: 7pt; padding: 4px 8px; }
+            .section-content { padding: 4px; }
+            .table th, .table td { font-size: 6.5pt; padding: 3px; }
+        }
         @media print {
             body { background: white; padding: 0; }
             .container { box-shadow: none; padding: 2mm; max-width: 100%; }
@@ -2258,8 +2353,8 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         <div class="danfe-header">
             <div class="header-row">
                 <div class="header-left">
-                    <div style="height: 80px; width: 130px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 8px;">
-                        <span style="font-size: 11pt; color: #666; font-weight: 600;">LOGO</span>
+                    <div style="height: 80px; width: 130px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 8px; overflow: hidden;">
+                        ${providerLogoUrl ? `<img src="${escapeHtml(providerLogoUrl)}" alt="Logo do provedor" style="max-width: 100%; max-height: 72px; object-fit: contain;">` : `<span style="font-size: 11pt; color: #666; font-weight: 600;">${escapeHtml(nfcomRow.provedor_nome || 'LOGO')}</span>`}
                     </div>
                 </div>
                 <div class="header-center">
@@ -2280,18 +2375,18 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
                 </div>
             </div>
             <div style="height: 1px; background: rgba(255,255,255,0.3); margin: 8px 0;"></div>
-            <div style="display: flex; gap: 10px; padding: 0 8px 8px;">
+            <div style="display: flex; gap: 10px; padding: 0 8px 8px; flex-wrap: wrap;">
                 ${nfcomRow.chave ? `
-                <div style="flex: 0 0 120px; text-align: center; padding: 10px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                <div style="flex: 0 1 120px; max-width: 120px; text-align: center; padding: 10px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                     <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(nfcomRow.chave)}" 
                          alt="QR Code NFCom"
-                         style="border-radius: 6px; width: 100px; height: 100px;">
+                         style="border-radius: 6px; width: 100px; height: 100px; max-width: 100%;">
                     <div style="font-size: 6pt; color: #555; margin-top: 6px; line-height: 1.3;">
                         <strong style="color: #1e3c72;">📱 CONSULTE</strong><br>
                         <span style="font-size: 5.5pt;">dfe-portal.svrs.rs.gov.br</span>
                     </div>
                 </div>
-                <div style="flex: 1; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                <div style="flex: 1 1 280px; min-width: 0; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                     <div style="text-align: center; margin-bottom: 10px; padding: 8px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 6px;">
                         <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(nfcomRow.chave)}&code=Code128&translate-esc=on&unit=Fit&dpi=96&imagetype=Gif&rotation=0&color=%23000000&bgcolor=%23ffffff" 
                              alt="Código de Barras" 
@@ -2355,6 +2450,32 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
                     <div class="info-field" style="flex: 0 0 35%;">
                         <span class="info-label">Celular</span>
                         <span class="info-value">${escapeHtml(nfcomRow.cliente_celular || '-')}</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <div class="info-field full-width">
+                        <span class="info-label">E-mail</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.cliente_email || '-')}</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <div class="info-field full-width">
+                        <span class="info-label">Endereço</span>
+                        <span class="info-value">${escapeHtml(clienteEnderecoCompleto || 'Não informado')}</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <div class="info-field" style="flex: 0 0 34%;">
+                        <span class="info-label">Bairro</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.cliente_bairro || '-')}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 33%;">
+                        <span class="info-label">Cidade</span>
+                        <span class="info-value">${escapeHtml(nfcomRow.cliente_cidade || '-')}</span>
+                    </div>
+                    <div class="info-field" style="flex: 0 0 33%;">
+                        <span class="info-label">CEP</span>
+                        <span class="info-value">${escapeHtml(formatarCEP(nfcomRow.cliente_cep))}</span>
                     </div>
                 </div>
             </div>
