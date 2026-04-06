@@ -78,6 +78,41 @@ const resolveTenantBillingBaseUrl = (tenant) => {
   return '';
 };
 
+const resolveNfcomQrBaseUrl = (ufOrAutorizador) => {
+  const normalized = String(ufOrAutorizador || '').trim().toUpperCase();
+
+  if (normalized === 'MG') {
+    return { autorizador: 'MG', baseQrCode: 'https://portalnfcom.fazenda.mg.gov.br/qrcode' };
+  }
+
+  if (normalized === 'MS') {
+    return { autorizador: 'MS', baseQrCode: 'https://www.dfe.ms.gov.br/nfcom/qrcode' };
+  }
+
+  if (normalized === 'MT') {
+    return { autorizador: 'MT', baseQrCode: 'https://www.sefaz.mt.gov.br/nfcom-ext-fe/qrcode' };
+  }
+
+  return { autorizador: 'SVRS', baseQrCode: 'https://dfe-portal.svrs.rs.gov.br/nfcom/qrCode' };
+};
+
+const buildNfcomConsultaData = ({ chave, ambiente, uf, autorizador }) => {
+  const chNFCom = String(chave || '').replace(/\D/g, '');
+  const tpAmb = String(ambiente || '').trim().toLowerCase().includes('homo') ? 2 : 1;
+  const resolved = resolveNfcomQrBaseUrl(autorizador || uf);
+
+  return {
+    chNFCom,
+    tpAmb,
+    uf: String(uf || '').trim().toUpperCase(),
+    autorizador: resolved.autorizador,
+    baseQrCode: resolved.baseQrCode,
+    urlConsulta: chNFCom
+      ? `${resolved.baseQrCode}?chNFCom=${chNFCom}&tpAmb=${tpAmb}`
+      : '',
+  };
+};
+
 const formatCurrencyBrl = (value) => {
   const numeric = Number.parseFloat(String(value ?? 0).replace(',', '.'));
   const safeValue = Number.isFinite(numeric) ? numeric : 0;
@@ -1952,6 +1987,12 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
       opcoes?.cliente_nome || (clienteTextoNfcom.includes('|') ? clienteTextoNfcom.split('|').slice(1).join('|') : '')
     ).trim();
     const provedorCnpjNfcom = String(opcoes?.cnpj || '').trim();
+    const consultaNfcom = buildNfcomConsultaData({
+      chave: nfcomRow.chave || opcoes?.chaveNFCom,
+      ambiente: opcoes?.ambiente,
+      uf: nfcomRow.provedor_estado,
+      autorizador: opcoes?.autorizador,
+    });
 
     // 3. Retornar dados estruturados
     return res.json({
@@ -1961,6 +2002,12 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
         numero: String(nfcomRow.numero || ''),
         serie: String(nfcomRow.serie || ''),
         chave: String(nfcomRow.chave || ''),
+        chNFCom: String(consultaNfcom.chNFCom || ''),
+        tpAmb: consultaNfcom.tpAmb,
+        uf: String(consultaNfcom.uf || ''),
+        autorizador: String(consultaNfcom.autorizador || ''),
+        baseQRCode: String(consultaNfcom.baseQrCode || ''),
+        urlConsulta: String(consultaNfcom.urlConsulta || ''),
         emissao: nfcomRow.emissao ? String(nfcomRow.emissao) : null,
         status: String(nfcomRow.status || 'PROCESSAMENTO'),
         protocolo: String(nfcomRow.protocolo || ''),
@@ -2172,6 +2219,15 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
     const ambienteNormalizado = String(opcoes?.ambiente || '').toUpperCase();
     const ambienteLabel = ambienteNormalizado.includes('HOMO') ? 'HOMOLOGAÇÃO' : 'PRODUÇÃO';
     const badgeAmbienteClass = ambienteNormalizado.includes('HOMO') ? 'badge-danger' : 'badge-success';
+    const consultaNfcom = buildNfcomConsultaData({
+      chave: nfcomRow.chave || opcoes?.chaveNFCom,
+      ambiente: opcoes?.ambiente,
+      uf: nfcomRow.provedor_estado,
+      autorizador: opcoes?.autorizador,
+    });
+    const portalConsultaLabel = String(consultaNfcom.baseQrCode || 'https://dfe-portal.svrs.rs.gov.br/nfcom/qrCode')
+      .replace(/^https?:\/\//i, '')
+      .split('/')[0];
 
     const tenantBaseUrl = resolveTenantBillingBaseUrl(req.tenant);
     const providerLogoUrl = (() => {
@@ -2447,27 +2503,28 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
             ${nfcomRow.chave ? `
             <div class="qr-wrapper">
                 <div class="qr-card">
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(nfcomRow.chave)}"
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(consultaNfcom.urlConsulta || consultaNfcom.chNFCom || nfcomRow.chave)}"
                          alt="QR Code NFCom"
                          style="width: 82px; height: 82px; display: block; margin: 0 auto;">
                     <div style="font-size: 8px; color: #444; margin-top: 6px; line-height: 1.2;">
                         <strong>CONSULTE</strong><br>
-                        dfe-portal.svrs.rs.gov.br
+                        ${escapeHtml(portalConsultaLabel)}
                     </div>
                 </div>
                 <div class="barcode-card">
                     <div style="text-align: center; padding: 8px 6px; background: #f2f4f7; border-radius: 4px; margin-bottom: 8px;">
-                        <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(nfcomRow.chave)}&code=Code128&translate-esc=on&unit=Fit&dpi=96&imagetype=Gif&rotation=0&color=%23000000&bgcolor=%23ffffff"
+                        <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(consultaNfcom.chNFCom || nfcomRow.chave)}&code=Code128&translate-esc=on&unit=Fit&dpi=96&imagetype=Gif&rotation=0&color=%23000000&bgcolor=%23ffffff"
                              alt="Código de Barras"
                              style="width: 96%; height: 34px; display: block; margin: 0 auto;">
                     </div>
                     <div style="text-align: center;">
                         <div style="font-size: 11px; color: #1f3f73; font-weight: 700; margin-bottom: 4px;">🔑 CHAVE DE ACESSO</div>
-                        <div style="font-family: 'Courier New', monospace; font-size: 12px; font-weight: 700; letter-spacing: 2px; background: #f7f8fa; padding: 8px 10px; border-radius: 4px; display: inline-block; max-width: 100%;">${escapeHtml(nfcomRow.chave)}</div>
+                        <div style="font-family: 'Courier New', monospace; font-size: 12px; font-weight: 700; letter-spacing: 2px; background: #f7f8fa; padding: 8px 10px; border-radius: 4px; display: inline-block; max-width: 100%;">${escapeHtml(consultaNfcom.chNFCom || nfcomRow.chave)}</div>
                         <div style="margin-top: 8px; display: flex; justify-content: center; gap: 6px; flex-wrap: wrap;">
                             <span class="badge ${badgeAmbienteClass}">${escapeHtml(ambienteLabel)}</span>
                             <span class="badge badge-success">DOCUMENTO COM VALOR FISCAL</span>
                         </div>
+                        ${consultaNfcom.urlConsulta ? `<div style="margin-top: 6px; font-size: 9px; color: #4b5563;">${escapeHtml(consultaNfcom.urlConsulta)}</div>` : ''}
                     </div>
                 </div>
             </div>
