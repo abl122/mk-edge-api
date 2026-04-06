@@ -1865,7 +1865,7 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
   try {
     const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 
-    // 1. Buscar dados da NFCom
+    // 1. Buscar dados da NFCom - usando titulo (que armazena uuid_lanc)
     const nfcomResult = await MkAuthAgentService.sendToAgent(
       req.tenant,
       `
@@ -1894,7 +1894,7 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
           p.fone AS provedor_fone
         FROM sis_nfcom n
         LEFT JOIN sis_provedor p ON 1=1
-        WHERE n.idmka = ?
+        WHERE n.titulo = ?
         LIMIT 1
       `,
       [uuidLanc]
@@ -2017,7 +2017,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
           p.fone AS provedor_fone
         FROM sis_nfcom n
         LEFT JOIN sis_provedor p ON 1=1
-        WHERE n.idmka = ?
+        WHERE n.titulo = ?
         LIMIT 1
       `,
       [uuidLanc]
