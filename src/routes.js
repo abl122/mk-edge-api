@@ -1870,8 +1870,8 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
       req.tenant,
       `
         SELECT
-          n.uuid_lanc,
-          n.idnfca,
+          n.uuid_nfcom,
+          n.idnfka,
           n.titulo,
           n.numero,
           n.serie,
@@ -1907,12 +1907,12 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
         FROM sis_nfcom n
         LEFT JOIN sis_provedor p ON 1=1
         LEFT JOIN sis_cliente c ON c.login = (
-          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = n.uuid_lanc LIMIT 1
+          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
         )
-        WHERE n.uuid_lanc = ?
+        WHERE n.idnfka = ?
         LIMIT 1
       `,
-      [uuidLanc]
+      [uuidLanc, uuidLanc]
     );
 
     const nfcomRow = nfcomResult?.data?.[0];
@@ -1945,7 +1945,8 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
     // 3. Retornar dados estruturados
     return res.json({
       nfcom: {
-        uuid_lanc: String(nfcomRow.uuid_lanc || ''),
+        uuid_nfcom: String(nfcomRow.uuid_nfcom || ''),
+        idnfka: String(nfcomRow.idnfka || ''),
         numero: String(nfcomRow.numero || ''),
         serie: String(nfcomRow.serie || ''),
         chave: String(nfcomRow.chave || ''),
@@ -2008,8 +2009,8 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
       req.tenant,
       `
         SELECT
-          n.uuid_lanc,
-          n.idnfca,
+          n.uuid_nfcom,
+          n.idnfka,
           n.titulo,
           n.numero,
           n.serie,
@@ -2044,12 +2045,12 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         FROM sis_nfcom n
         LEFT JOIN sis_provedor p ON 1=1
         LEFT JOIN sis_cliente c ON c.login = (
-          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = n.uuid_lanc LIMIT 1
+          SELECT l.login FROM sis_lanc l WHERE l.uuid_lanc = ? LIMIT 1
         )
-        WHERE n.uuid_lanc = ?
+        WHERE n.idnfka = ?
         LIMIT 1
       `,
-      [uuidLanc]
+      [uuidLanc, uuidLanc]
     );
 
     const nfcomRow = nfcomResult?.data?.[0];
