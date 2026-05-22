@@ -303,6 +303,36 @@ class PasswordRecoveryController {
     return String(value || '').trim().toUpperCase()
   }
 
+  static isPrivateOrLocalHost(hostname) {
+    const host = String(hostname || '').trim().toLowerCase()
+    if (!host) return false
+    if (host === 'localhost' || host === '127.0.0.1') return true
+
+    const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(host)
+    if (!ipv4) return false
+
+    if (/^10\./.test(host)) return true
+    if (/^192\.168\./.test(host)) return true
+    if (/^127\./.test(host)) return true
+
+    const match172 = host.match(/^172\.(\d{1,3})\./)
+    if (match172) {
+      const secondOctet = Number(match172[1])
+      if (secondOctet >= 16 && secondOctet <= 31) return true
+    }
+
+    return false
+  }
+
+  static shouldPreferSisOpcoesSms(integrationUrl) {
+    try {
+      const parsed = new URL(String(integrationUrl || '').trim())
+      return PasswordRecoveryController.isPrivateOrLocalHost(parsed.hostname)
+    } catch {
+      return false
+    }
+  }
+
   static async resolveSmsGatewayConfig(tenant) {
     const IntegrationService = require('../services/IntegrationService')
 
@@ -314,16 +344,8 @@ class PasswordRecoveryController {
     const integrationMethod = PasswordRecoveryController.normalizeSmsMethod(integration?.sms?.method || 'POST')
 
     const integrationComplete = integrationEnabled && integrationUrl && integrationUser && integrationPassword
-    if (integrationComplete) {
-      return {
-        source: 'integration',
-        enabled: true,
-        smsUrl: integrationUrl,
-        smsUser: integrationUser,
-        smsPassword: integrationPassword,
-        smsMethod: integrationMethod
-      }
-    }
+    const preferSisOpcoes = PasswordRecoveryController.shouldPreferSisOpcoesSms(integrationUrl)
+    let sisOpcoesCanonicalHost = ''
 
     try {
       const optionsResult = await MkAuthAgentService.sendToAgent(
@@ -355,16 +377,41 @@ class PasswordRecoveryController {
       const mkAuthPassword = String(optionsByName.sms_senha || optionsByName.sms_token || '').trim()
       const mkAuthMethod = PasswordRecoveryController.normalizeSmsMethod(optionsByName.sms_gt || 'POST')
 
+      try {
+        sisOpcoesCanonicalHost = new URL(mkAuthUrl).hostname
+      } catch {
+        sisOpcoesCanonicalHost = ''
+      }
+
       const mkAuthComplete = mkAuthEnabled && mkAuthUrl && mkAuthUser && mkAuthPassword
       if (mkAuthComplete) {
-        return {
-          source: 'sis_opcoes',
-          enabled: true,
-          smsUrl: mkAuthUrl,
-          smsUser: mkAuthUser,
-          smsPassword: mkAuthPassword,
-          smsMethod: mkAuthMethod
+        if (preferSisOpcoes) {
+          logger.info('Preferindo configuração SMS de sis_opcoes (integration com host privado/local)', {
+            tenant_id: tenant?._id || null,
+            integration_url: integrationUrl,
+            sis_opcoes_url: mkAuthUrl
+          })
         }
+
+        if (!integrationComplete || preferSisOpcoes) {
+          return {
+            source: 'sis_opcoes',
+            enabled: true,
+            smsUrl: mkAuthUrl,
+            smsUser: mkAuthUser,
+            smsPassword: mkAuthPassword,
+            smsMethod: mkAuthMethod,
+            canonicalHost: sisOpcoesCanonicalHost
+          }
+        }
+      }
+
+      if (mkAuthComplete && integrationComplete) {
+        logger.info('Mantendo configuração SMS da integration (sis_opcoes disponível como fallback)', {
+          tenant_id: tenant?._id || null,
+          integration_url: integrationUrl,
+          sis_opcoes_url: mkAuthUrl
+        })
       }
     } catch (error) {
       logger.warn('Falha ao obter configuração SMS em sis_opcoes', {
@@ -373,13 +420,26 @@ class PasswordRecoveryController {
       })
     }
 
+    if (integrationComplete) {
+      return {
+        source: 'integration',
+        enabled: true,
+        smsUrl: integrationUrl,
+        smsUser: integrationUser,
+        smsPassword: integrationPassword,
+        smsMethod: integrationMethod,
+        canonicalHost: sisOpcoesCanonicalHost
+      }
+    }
+
     return {
       source: 'incomplete',
       enabled: integrationEnabled,
       smsUrl: integrationUrl,
       smsUser: integrationUser,
       smsPassword: integrationPassword,
-      smsMethod: integrationMethod
+      smsMethod: integrationMethod,
+      canonicalHost: sisOpcoesCanonicalHost
     }
   }
 
@@ -1275,6 +1335,7 @@ class PasswordRecoveryController {
       const smsPassword = String(smsConfig.smsPassword || '').trim()
       const smsMethod = String(smsConfig.smsMethod || 'POST').trim().toUpperCase()
       const smsConfigSource = String(smsConfig.source || 'unknown')
+      const smsConfigCanonicalHost = String(smsConfig.canonicalHost || '').trim().toLowerCase()
 
       logger.info('Configuração SMS resolvida para 2FA', {
         tenant_id: tenant?._id || null,
@@ -1317,7 +1378,14 @@ class PasswordRecoveryController {
         mensagem
       }
       const params = new URLSearchParams(paramsObj)
-      const canonicalSmsHostname = 'mk-messenger.com.br'
+      let canonicalSmsHostname = smsConfigCanonicalHost || String(process.env.SMS_CANONICAL_HOSTNAME || '').trim().toLowerCase()
+      if (!canonicalSmsHostname) {
+        try {
+          canonicalSmsHostname = new URL(smsUrl).hostname.toLowerCase()
+        } catch {
+          canonicalSmsHostname = ''
+        }
+      }
       const isHttpsSmsEndpoint = /^https:\/\//i.test(String(smsUrl || ''))
       const legacyTlsCompatEnabled = String(process.env.SMS_TLS_INSECURE_COMPAT || 'true').toLowerCase() !== 'false'
 
@@ -1359,10 +1427,15 @@ class PasswordRecoveryController {
       }
 
       const buildCanonicalUrl = (rawUrl) => {
+        if (!canonicalSmsHostname) {
+          return rawUrl
+        }
         try {
           const parsed = new URL(rawUrl)
+          // Gateway can redirect HTTP/IP to HTTPS; force canonical host over HTTPS.
+          parsed.protocol = 'https:'
           parsed.hostname = canonicalSmsHostname
-          return parsed.toString()
+          return normalizeSmsUrl(parsed.toString())
         } catch {
           return rawUrl
         }
@@ -1399,7 +1472,7 @@ class PasswordRecoveryController {
             'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
           ]
           const gatewayCode = firstSmsError?.code || ''
-          const shouldRetryWithInsecureTls = isHttpsSmsEndpoint && tlsRetryCodes.includes(gatewayCode)
+          const shouldRetryWithInsecureTls = tlsRetryCodes.includes(gatewayCode)
 
           if (!shouldRetryWithInsecureTls) {
             throw firstSmsError
