@@ -419,10 +419,22 @@ class PasswordRecoveryController {
         }
       }
 
+      logger.warn('Configuração SMS de sis_opcoes incompleta para 2FA', {
+        tenant_id: tenant?._id || null,
+        table: optionsTableUsed,
+        mkauth_enabled: !!mkAuthEnabled,
+        endpoint_set: !!mkAuthUrl,
+        user_set: !!mkAuthUser,
+        password_set: !!mkAuthPassword
+      })
+
       if (integrationComplete) {
         logger.warn('Fallback para configuração SMS da integration (sis_opcoes indisponível/incompleta)', {
           tenant_id: tenant?._id || null,
-          integration_url: integrationUrl
+          integration_url: integrationUrl,
+          integration_enabled: !!integrationEnabled,
+          integration_user_set: !!integrationUser,
+          integration_password_set: !!integrationPassword
         })
       }
     } catch (error) {
@@ -433,6 +445,12 @@ class PasswordRecoveryController {
     }
 
     if (integrationComplete) {
+      logger.info('Configuração SMS final resolvida para 2FA: integration', {
+        tenant_id: tenant?._id || null,
+        sms_url: integrationUrl,
+        sms_method: integrationMethod
+      })
+
       return {
         source: 'integration',
         enabled: true,
