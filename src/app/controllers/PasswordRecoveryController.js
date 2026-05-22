@@ -9,6 +9,7 @@ const Tenant = require('../schemas/Tenant')
 const MkAuthAgentService = require('../services/MkAuthAgentService')
 const crypto = require('crypto')
 const PasswordRecoveryToken = require('../schemas/PasswordRecoveryToken')
+const mongoose = require('mongoose')
 
 class PasswordRecoveryController {
   static sanitizeEmail(value) {
@@ -82,10 +83,13 @@ class PasswordRecoveryController {
   static async resolveTenantForRecovery(req, user) {
     const tenantId = user?.tenant_id || req?.query?.tenant_id || req?.body?.tenant_id || null
     if (tenantId) {
-      const tenant = await Tenant.findById(tenantId)
-      if (tenant) {
-        return tenant
+      const tenantIdStr = String(tenantId).trim()
+      if (!mongoose.Types.ObjectId.isValid(tenantIdStr)) {
+        return null
       }
+
+      const tenant = await Tenant.findById(tenantIdStr)
+      return tenant || null
     }
 
     return Tenant.findOne()
@@ -224,8 +228,13 @@ class PasswordRecoveryController {
       null
 
     if (tenantId) {
-      const byId = await Tenant.findById(tenantId)
-      if (byId) return byId
+      const tenantIdStr = String(tenantId).trim()
+      if (!mongoose.Types.ObjectId.isValid(tenantIdStr)) {
+        return null
+      }
+
+      const byId = await Tenant.findById(tenantIdStr)
+      return byId || null
     }
 
     return PasswordRecoveryController.resolveTenantForRecovery(req, user)
@@ -1000,7 +1009,12 @@ class PasswordRecoveryController {
         }
       })
     } catch (error) {
-      logger.error('Erro ao obter contatos 2FA de cliente:', error)
+      logger.error('Erro ao obter contatos 2FA de cliente', {
+        error: error?.message || String(error),
+        stack: error?.stack,
+        tenant_id: req?.query?.tenant_id || null,
+        document: req?.query?.document || req?.query?.cpf || req?.query?.cpfCnpj || null
+      })
       return res.status(500).json({
         success: false,
         message: 'Erro ao obter contatos de verificação'
@@ -1165,7 +1179,13 @@ class PasswordRecoveryController {
 
       return res.json({ success: true, message: 'Código enviado por SMS' })
     } catch (error) {
-      logger.error('Erro ao solicitar código 2FA do cliente:', error)
+      logger.error('Erro ao solicitar código 2FA do cliente', {
+        error: error?.message || String(error),
+        stack: error?.stack,
+        tenant_id: req?.body?.tenant_id || null,
+        document: req?.body?.document || req?.body?.cpf || req?.body?.cpfCnpj || null,
+        method: req?.body?.method || null
+      })
       return res.status(500).json({
         success: false,
         message: 'Erro ao solicitar código de verificação'
@@ -1238,7 +1258,12 @@ class PasswordRecoveryController {
         message: 'Código validado com sucesso'
       })
     } catch (error) {
-      logger.error('Erro ao validar código 2FA do cliente:', error)
+      logger.error('Erro ao validar código 2FA do cliente', {
+        error: error?.message || String(error),
+        stack: error?.stack,
+        tenant_id: req?.body?.tenant_id || null,
+        document: req?.body?.document || req?.body?.cpf || req?.body?.cpfCnpj || null
+      })
       return res.status(500).json({
         success: false,
         message: 'Erro ao validar código de verificação'
