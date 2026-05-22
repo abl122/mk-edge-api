@@ -344,7 +344,6 @@ class PasswordRecoveryController {
     const integrationMethod = PasswordRecoveryController.normalizeSmsMethod(integration?.sms?.method || 'POST')
 
     const integrationComplete = integrationEnabled && integrationUrl && integrationUser && integrationPassword
-    const preferSisOpcoes = PasswordRecoveryController.shouldPreferSisOpcoesSms(integrationUrl)
     let sisOpcoesCanonicalHost = ''
 
     try {
@@ -403,32 +402,27 @@ class PasswordRecoveryController {
           user_set: !!mkAuthUser
         })
 
-        if (preferSisOpcoes) {
-          logger.info('Preferindo configuração SMS de sis_opcoes (integration com host privado/local)', {
-            tenant_id: tenant?._id || null,
-            integration_url: integrationUrl,
-            sis_opcoes_url: mkAuthUrl
-          })
-        }
-
-        if (!integrationComplete || preferSisOpcoes) {
-          return {
-            source: 'sis_opcoes',
-            enabled: true,
-            smsUrl: mkAuthUrl,
-            smsUser: mkAuthUser,
-            smsPassword: mkAuthPassword,
-            smsMethod: mkAuthMethod,
-            canonicalHost: sisOpcoesCanonicalHost
-          }
-        }
-      }
-
-      if (mkAuthComplete && integrationComplete) {
-        logger.info('Mantendo configuração SMS da integration (sis_opcoes disponível como fallback)', {
+        logger.info('Usando configuração SMS de sis_opcoes para 2FA', {
           tenant_id: tenant?._id || null,
           integration_url: integrationUrl,
           sis_opcoes_url: mkAuthUrl
+        })
+
+        return {
+          source: 'sis_opcoes',
+          enabled: true,
+          smsUrl: mkAuthUrl,
+          smsUser: mkAuthUser,
+          smsPassword: mkAuthPassword,
+          smsMethod: mkAuthMethod,
+          canonicalHost: sisOpcoesCanonicalHost
+        }
+      }
+
+      if (integrationComplete) {
+        logger.warn('Fallback para configuração SMS da integration (sis_opcoes indisponível/incompleta)', {
+          tenant_id: tenant?._id || null,
+          integration_url: integrationUrl
         })
       }
     } catch (error) {
@@ -1445,25 +1439,9 @@ class PasswordRecoveryController {
         })
       }
 
-      const buildCanonicalUrl = (rawUrl) => {
-        if (!canonicalSmsHostname) {
-          return rawUrl
-        }
-        try {
-          const parsed = new URL(rawUrl)
-          // Gateway can redirect HTTP/IP to HTTPS; force canonical host over HTTPS.
-          parsed.protocol = 'https:'
-          parsed.hostname = canonicalSmsHostname
-          return normalizeSmsUrl(parsed.toString())
-        } catch {
-          return rawUrl
-        }
-      }
-
       try {
         let smsResponse
         let usedInsecureTlsRetry = false
-        let usedCanonicalHostRetry = false
         let requestSmsUrl = normalizeSmsUrl(smsUrl)
 
         if (legacyTlsCompatEnabled && isHttpsSmsEndpoint) {
@@ -1497,45 +1475,17 @@ class PasswordRecoveryController {
             throw firstSmsError
           }
 
-          const canonicalUrl = buildCanonicalUrl(smsUrl)
-          if (canonicalUrl !== smsUrl) {
-            usedCanonicalHostRetry = true
-            requestSmsUrl = canonicalUrl
-            logger.warn('TLS altname inválido no gateway SMS; tentando hostname canônico', {
-              tenant_id: tenant?._id || null,
-              login,
-              sms_url_original: smsUrl,
-              sms_url_retry: canonicalUrl,
-              sms_method: smsMethod,
-              gateway_code: gatewayCode
-            })
+          usedInsecureTlsRetry = true
+          logger.warn('TLS do gateway SMS inválido; retry mantendo URL original com rejectUnauthorized=false', {
+            tenant_id: tenant?._id || null,
+            login,
+            sms_url_original: smsUrl,
+            sms_url_retry: requestSmsUrl,
+            sms_method: smsMethod,
+            gateway_code: gatewayCode
+          })
 
-            try {
-              smsResponse = await sendSmsRequest(requestSmsUrl, false)
-            } catch (canonicalRetryError) {
-              usedInsecureTlsRetry = true
-              logger.warn('TLS do gateway SMS inválido; tentando novamente com rejectUnauthorized=false', {
-                tenant_id: tenant?._id || null,
-                login,
-                sms_url: requestSmsUrl,
-                sms_method: smsMethod,
-                gateway_code: canonicalRetryError?.code || gatewayCode
-              })
-
-              smsResponse = await sendSmsRequest(requestSmsUrl, true)
-            }
-          } else {
-            usedInsecureTlsRetry = true
-            logger.warn('TLS do gateway SMS inválido; tentando novamente com rejectUnauthorized=false', {
-              tenant_id: tenant?._id || null,
-              login,
-              sms_url: requestSmsUrl,
-              sms_method: smsMethod,
-              gateway_code: gatewayCode
-            })
-
-            smsResponse = await sendSmsRequest(requestSmsUrl, true)
-          }
+          smsResponse = await sendSmsRequest(requestSmsUrl, true)
         }
 
         const { status, data } = smsResponse
@@ -1568,7 +1518,6 @@ class PasswordRecoveryController {
             sms_config_source: smsConfigSource,
             sms_url: requestSmsUrl,
             sms_method: smsMethod,
-            tls_canonical_host_retry: usedCanonicalHostRetry,
             tls_insecure_retry: usedInsecureTlsRetry,
             gateway_status: status,
             gateway_message: gatewayMessage,
