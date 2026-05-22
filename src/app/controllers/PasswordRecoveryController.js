@@ -1127,6 +1127,12 @@ class PasswordRecoveryController {
       const { method } = req.body
       const methodNormalized = String(method || '').trim().toLowerCase()
 
+      logger.info('Iniciando fluxo 2FA request-code', {
+        tenant_id: req?.body?.tenant_id || null,
+        method: methodNormalized,
+        has_document: !!document
+      })
+
       if (!document || !['email', 'sms'].includes(methodNormalized)) {
         return res.status(400).json({
           success: false,
@@ -1257,6 +1263,10 @@ class PasswordRecoveryController {
 
       const smsConfig = await PasswordRecoveryController.resolveSmsGatewayConfig(tenant)
       if (!smsConfig.enabled) {
+        logger.warn('Configuração SMS desabilitada para 2FA', {
+          tenant_id: tenant?._id || null,
+          source: smsConfig?.source || 'unknown'
+        })
         return res.status(500).json({ success: false, message: 'Sistema de SMS não configurado' })
       }
 
@@ -1265,6 +1275,14 @@ class PasswordRecoveryController {
       const smsPassword = String(smsConfig.smsPassword || '').trim()
       const smsMethod = String(smsConfig.smsMethod || 'POST').trim().toUpperCase()
       const smsConfigSource = String(smsConfig.source || 'unknown')
+
+      logger.info('Configuração SMS resolvida para 2FA', {
+        tenant_id: tenant?._id || null,
+        source: smsConfigSource,
+        endpoint_set: !!smsUrl,
+        user_set: !!smsUser,
+        method: smsMethod
+      })
 
       if (!smsUrl || !smsUser || !smsPassword) {
         logger.warn('Configuração SMS incompleta para 2FA', {
@@ -1366,6 +1384,12 @@ class PasswordRecoveryController {
         }
 
         try {
+          logger.info('Enviando 2FA SMS para gateway', {
+            tenant_id: tenant?._id || null,
+            source: smsConfigSource,
+            sms_method: smsMethod,
+            sms_url: requestSmsUrl
+          })
           smsResponse = await sendSmsRequest(requestSmsUrl, false)
         } catch (firstSmsError) {
           const tlsRetryCodes = [
