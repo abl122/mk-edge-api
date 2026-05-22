@@ -1410,10 +1410,18 @@ class PasswordRecoveryController {
         }
       }
 
-      const sendSmsRequest = async (targetUrl, allowInsecureTls = false) => {
+      const sendSmsRequest = async (
+        targetUrl,
+        {
+          allowInsecureTls = false,
+          methodOverride = null,
+          timeoutMs = smsGatewayTimeoutMs
+        } = {}
+      ) => {
         const useHttps = /^https:\/\//i.test(String(targetUrl || ''))
+        const effectiveMethod = String(methodOverride || smsMethod).trim().toUpperCase()
         const baseOptions = {
-          timeout: smsGatewayTimeoutMs,
+          timeout: timeoutMs,
           validateStatus: (status) => status < 500
         }
 
@@ -1421,7 +1429,7 @@ class PasswordRecoveryController {
           baseOptions.httpsAgent = new https.Agent({ rejectUnauthorized: false })
         }
 
-        if (smsMethod === 'GET') {
+        if (effectiveMethod === 'GET') {
           return axios.get(`${targetUrl}?${params.toString()}`, baseOptions)
         }
 
@@ -1452,7 +1460,7 @@ class PasswordRecoveryController {
             sms_method: smsMethod,
             sms_url: requestSmsUrl
           })
-          smsResponse = await sendSmsRequest(requestSmsUrl, false)
+          smsResponse = await sendSmsRequest(requestSmsUrl)
         } catch (firstSmsError) {
           const tlsRetryCodes = [
             'ERR_TLS_CERT_ALTNAME_INVALID',
@@ -1460,24 +1468,38 @@ class PasswordRecoveryController {
             'SELF_SIGNED_CERT_IN_CHAIN',
             'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
           ]
+          const timeoutRetryCodes = ['ECONNABORTED', 'ETIMEDOUT']
           const gatewayCode = firstSmsError?.code || ''
           const shouldRetryWithInsecureTls = tlsRetryCodes.includes(gatewayCode)
 
-          if (!shouldRetryWithInsecureTls) {
-            throw firstSmsError
+          if (!shouldRetryWithInsecureTls && smsMethod === 'POST' && timeoutRetryCodes.includes(gatewayCode)) {
+            logger.warn('Timeout/abort no POST do gateway SMS; tentando GET na mesma URL', {
+              tenant_id: tenant?._id || null,
+              login,
+              sms_url: requestSmsUrl,
+              sms_method_original: smsMethod,
+              sms_method_retry: 'GET',
+              gateway_code: gatewayCode
+            })
+
+            smsResponse = await sendSmsRequest(requestSmsUrl, { methodOverride: 'GET' })
+          } else {
+            if (!shouldRetryWithInsecureTls) {
+              throw firstSmsError
+            }
+
+            usedInsecureTlsRetry = true
+            logger.warn('TLS do gateway SMS inválido; retry mantendo URL original com rejectUnauthorized=false', {
+              tenant_id: tenant?._id || null,
+              login,
+              sms_url_original: smsUrl,
+              sms_url_retry: requestSmsUrl,
+              sms_method: smsMethod,
+              gateway_code: gatewayCode
+            })
+
+            smsResponse = await sendSmsRequest(requestSmsUrl, { allowInsecureTls: true })
           }
-
-          usedInsecureTlsRetry = true
-          logger.warn('TLS do gateway SMS inválido; retry mantendo URL original com rejectUnauthorized=false', {
-            tenant_id: tenant?._id || null,
-            login,
-            sms_url_original: smsUrl,
-            sms_url_retry: requestSmsUrl,
-            sms_method: smsMethod,
-            gateway_code: gatewayCode
-          })
-
-          smsResponse = await sendSmsRequest(requestSmsUrl, true)
         }
 
         const { status, data } = smsResponse
