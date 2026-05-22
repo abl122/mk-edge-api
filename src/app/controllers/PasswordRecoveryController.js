@@ -433,6 +433,7 @@ class PasswordRecoveryController {
       // Enviar SMS usando configuração do sistema
       const IntegrationService = require('../services/IntegrationService')
       const axios = require('axios')
+      const https = require('https')
       const { formatPhoneForSMS } = require('../utils/phone')
       const Tenant = require('../schemas/Tenant')
 
@@ -1190,20 +1191,58 @@ class PasswordRecoveryController {
         msg: mensagem
       }
       const params = new URLSearchParams(paramsObj)
+      const isHttpsSmsEndpoint = /^https:\/\//i.test(String(smsUrl || ''))
+
+      const sendSmsRequest = async (allowInsecureTls = false) => {
+        const baseOptions = {
+          timeout: 10000,
+          validateStatus: (status) => status < 500
+        }
+
+        if (allowInsecureTls && isHttpsSmsEndpoint) {
+          baseOptions.httpsAgent = new https.Agent({ rejectUnauthorized: false })
+        }
+
+        if (smsMethod === 'GET') {
+          return axios.get(`${smsUrl}?${params.toString()}`, baseOptions)
+        }
+
+        return axios.post(smsUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          ...baseOptions
+        })
+      }
 
       try {
         let smsResponse
-        if (smsMethod === 'GET') {
-          smsResponse = await axios.get(`${smsUrl}?${params.toString()}`, {
-            timeout: 10000,
-            validateStatus: (status) => status < 500
+        let usedInsecureTlsRetry = false
+
+        try {
+          smsResponse = await sendSmsRequest(false)
+        } catch (firstSmsError) {
+          const tlsRetryCodes = [
+            'ERR_TLS_CERT_ALTNAME_INVALID',
+            'DEPTH_ZERO_SELF_SIGNED_CERT',
+            'SELF_SIGNED_CERT_IN_CHAIN',
+            'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
+          ]
+          const gatewayCode = firstSmsError?.code || ''
+          const shouldRetryWithInsecureTls = isHttpsSmsEndpoint && tlsRetryCodes.includes(gatewayCode)
+
+          if (!shouldRetryWithInsecureTls) {
+            throw firstSmsError
+          }
+
+          usedInsecureTlsRetry = true
+          logger.warn('TLS do gateway SMS inválido; tentando novamente com rejectUnauthorized=false', {
+            tenant_id: tenant?._id || null,
+            login,
+            sms_url: smsUrl,
+            sms_method: smsMethod,
+            gateway_code: gatewayCode
           })
-        } else {
-          smsResponse = await axios.post(smsUrl, params.toString(), {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            timeout: 10000,
-            validateStatus: (status) => status < 500
-          })
+
+          smsResponse = await sendSmsRequest(true)
         }
 
         const { status, data } = smsResponse
@@ -1235,6 +1274,7 @@ class PasswordRecoveryController {
             login,
             sms_url: smsUrl,
             sms_method: smsMethod,
+            tls_insecure_retry: usedInsecureTlsRetry,
             gateway_status: status,
             gateway_message: gatewayMessage,
             gateway_data: typeof data === 'string' ? data.slice(0, 400) : data
