@@ -290,6 +290,99 @@ class PasswordRecoveryController {
     })
   }
 
+  static parseSmsEnabled(value) {
+    const text = String(value || '').trim().toLowerCase()
+    return ['sim', 's', '1', 'true', 'on', 'enabled'].includes(text)
+  }
+
+  static normalizeSmsMethod(value) {
+    const text = String(value || '').trim().toLowerCase()
+    if (!text) return 'POST'
+    if (text.includes('get')) return 'GET'
+    if (text.includes('post')) return 'POST'
+    return String(value || '').trim().toUpperCase()
+  }
+
+  static async resolveSmsGatewayConfig(tenant) {
+    const IntegrationService = require('../services/IntegrationService')
+
+    const integration = await IntegrationService.findByTenantAndType(tenant._id, 'sms')
+    const integrationEnabled = Boolean(integration?.sms?.enabled)
+    const integrationUrl = String(integration?.sms?.endpoint || integration?.sms?.url || '').trim()
+    const integrationUser = String(integration?.sms?.username || integration?.sms?.user || '').trim()
+    const integrationPassword = String(integration?.sms?.password || integration?.sms?.token || '').trim()
+    const integrationMethod = PasswordRecoveryController.normalizeSmsMethod(integration?.sms?.method || 'POST')
+
+    const integrationComplete = integrationEnabled && integrationUrl && integrationUser && integrationPassword
+    if (integrationComplete) {
+      return {
+        source: 'integration',
+        enabled: true,
+        smsUrl: integrationUrl,
+        smsUser: integrationUser,
+        smsPassword: integrationPassword,
+        smsMethod: integrationMethod
+      }
+    }
+
+    try {
+      const optionsResult = await MkAuthAgentService.sendToAgent(
+        tenant,
+        `SELECT nome, valor
+         FROM sis_opcoes
+         WHERE nome IN (
+           'clmk_sms',
+           'sms_servidor',
+           'sms_dlogin',
+           'sms_conta',
+           'sms_senha',
+           'sms_token',
+           'sms_gt'
+         )`,
+        {}
+      )
+
+      const optionsByName = {}
+      for (const row of optionsResult?.data || []) {
+        const key = String(row?.nome || '').trim().toLowerCase()
+        const value = String(row?.valor || '').trim()
+        if (key) optionsByName[key] = value
+      }
+
+      const mkAuthEnabled = PasswordRecoveryController.parseSmsEnabled(optionsByName.clmk_sms)
+      const mkAuthUrl = String(optionsByName.sms_servidor || '').trim()
+      const mkAuthUser = String(optionsByName.sms_dlogin || optionsByName.sms_conta || '').trim()
+      const mkAuthPassword = String(optionsByName.sms_senha || optionsByName.sms_token || '').trim()
+      const mkAuthMethod = PasswordRecoveryController.normalizeSmsMethod(optionsByName.sms_gt || 'POST')
+
+      const mkAuthComplete = mkAuthEnabled && mkAuthUrl && mkAuthUser && mkAuthPassword
+      if (mkAuthComplete) {
+        return {
+          source: 'sis_opcoes',
+          enabled: true,
+          smsUrl: mkAuthUrl,
+          smsUser: mkAuthUser,
+          smsPassword: mkAuthPassword,
+          smsMethod: mkAuthMethod
+        }
+      }
+    } catch (error) {
+      logger.warn('Falha ao obter configuração SMS em sis_opcoes', {
+        tenant_id: tenant?._id || null,
+        error: error?.message || String(error)
+      })
+    }
+
+    return {
+      source: 'incomplete',
+      enabled: integrationEnabled,
+      smsUrl: integrationUrl,
+      smsUser: integrationUser,
+      smsPassword: integrationPassword,
+      smsMethod: integrationMethod
+    }
+  }
+
   static normalizeCnpj(value) {
     if (!value) return '';
     return String(value).replace(/[^\d]/g, '');
@@ -464,7 +557,7 @@ class PasswordRecoveryController {
         })
       }
 
-      const smsUrl = integration.sms.endpoint || integration.sms.url
+      const smsUrl = String(integration.sms.endpoint || integration.sms.url || '').trim()
       const smsUser = integration.sms.username || integration.sms.user
       const smsPassword = integration.sms.token || integration.sms.password
       const smsMethod = integration.sms.method || 'POST'
@@ -1159,19 +1252,28 @@ class PasswordRecoveryController {
       }
 
       const axios = require('axios')
+      const https = require('https')
       const { formatPhoneForSMS } = require('../utils/phone')
 
-      const integration = await IntegrationService.findByTenantAndType(tenant._id, 'sms')
-      if (!integration?.sms?.enabled) {
+      const smsConfig = await PasswordRecoveryController.resolveSmsGatewayConfig(tenant)
+      if (!smsConfig.enabled) {
         return res.status(500).json({ success: false, message: 'Sistema de SMS não configurado' })
       }
 
-      const smsUrl = integration.sms.endpoint || integration.sms.url
-      const smsUser = integration.sms.username || integration.sms.user
-      const smsPassword = integration.sms.password || integration.sms.token
-      const smsMethod = String(integration.sms.method || 'POST').trim().toUpperCase()
+      const smsUrl = String(smsConfig.smsUrl || '').trim()
+      const smsUser = String(smsConfig.smsUser || '').trim()
+      const smsPassword = String(smsConfig.smsPassword || '').trim()
+      const smsMethod = String(smsConfig.smsMethod || 'POST').trim().toUpperCase()
+      const smsConfigSource = String(smsConfig.source || 'unknown')
 
       if (!smsUrl || !smsUser || !smsPassword) {
+        logger.warn('Configuração SMS incompleta para 2FA', {
+          tenant_id: tenant?._id || null,
+          source: smsConfigSource,
+          endpoint_set: !!smsUrl,
+          user_set: !!smsUser,
+          password_set: !!smsPassword
+        })
         return res.status(500).json({ success: false, message: 'Sistema de SMS não configurado' })
       }
 
@@ -1185,15 +1287,37 @@ class PasswordRecoveryController {
 
       const phoneFormatted = formatPhoneForSMS(recoveryPhone)
       const mensagem = `Seu código de login MK-Edge é: ${codigo}. Válido por 10 minutos.`
+      const smsNumber = `55${phoneFormatted}`
       const paramsObj = {
         u: smsUser,
         p: smsPassword,
-        to: `55${phoneFormatted}`,
-        msg: mensagem
+        to: smsNumber,
+        msg: mensagem,
+        // Compatibilidade com gateway legado (mk-messenger)
+        token: smsUser,
+        celular: `+${smsNumber}`,
+        mensagem
       }
       const params = new URLSearchParams(paramsObj)
       const canonicalSmsHostname = 'mk-messenger.com.br'
       const isHttpsSmsEndpoint = /^https:\/\//i.test(String(smsUrl || ''))
+      const legacyTlsCompatEnabled = String(process.env.SMS_TLS_INSECURE_COMPAT || 'true').toLowerCase() !== 'false'
+
+      const normalizeSmsUrl = (rawUrl) => {
+        try {
+          const parsed = new URL(rawUrl)
+          const isMessengerHost = parsed.hostname.toLowerCase() === canonicalSmsHostname
+          const hasPath = parsed.pathname && parsed.pathname !== '/'
+
+          if (isMessengerHost && !hasPath) {
+            parsed.pathname = '/sms/index.php'
+          }
+
+          return parsed.toString()
+        } catch {
+          return rawUrl
+        }
+      }
 
       const sendSmsRequest = async (targetUrl, allowInsecureTls = false) => {
         const useHttps = /^https:\/\//i.test(String(targetUrl || ''))
@@ -1202,7 +1326,7 @@ class PasswordRecoveryController {
           validateStatus: (status) => status < 500
         }
 
-        if (allowInsecureTls && useHttps) {
+        if ((allowInsecureTls || legacyTlsCompatEnabled) && useHttps) {
           baseOptions.httpsAgent = new https.Agent({ rejectUnauthorized: false })
         }
 
@@ -1230,7 +1354,16 @@ class PasswordRecoveryController {
         let smsResponse
         let usedInsecureTlsRetry = false
         let usedCanonicalHostRetry = false
-        let requestSmsUrl = smsUrl
+        let requestSmsUrl = normalizeSmsUrl(smsUrl)
+
+        if (legacyTlsCompatEnabled && isHttpsSmsEndpoint) {
+          logger.warn('Compatibilidade TLS insegura para gateway SMS está ativa no 2FA', {
+            tenant_id: tenant?._id || null,
+            login,
+            sms_url: smsUrl,
+            sms_method: smsMethod
+          })
+        }
 
         try {
           smsResponse = await sendSmsRequest(requestSmsUrl, false)
@@ -1316,6 +1449,7 @@ class PasswordRecoveryController {
           logger.warn('Gateway SMS rejeitou envio 2FA do cliente', {
             tenant_id: tenant?._id || null,
             login,
+            sms_config_source: smsConfigSource,
             sms_url: requestSmsUrl,
             sms_method: smsMethod,
             tls_canonical_host_retry: usedCanonicalHostRetry,
@@ -1346,6 +1480,7 @@ class PasswordRecoveryController {
           stack: smsError?.stack,
           tenant_id: tenant?._id || null,
           login,
+          sms_config_source: smsConfigSource,
           sms_url: smsUrl,
           sms_method: smsMethod,
           gateway_reason: gatewayReason,
