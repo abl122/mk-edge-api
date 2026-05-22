@@ -1166,11 +1166,19 @@ class PasswordRecoveryController {
 
       const smsUrl = integration.sms.endpoint || integration.sms.url
       const smsUser = integration.sms.username || integration.sms.user
-      const smsPassword = integration.sms.token || integration.sms.password
-      const smsMethod = integration.sms.method || 'POST'
+      const smsPassword = integration.sms.password || integration.sms.token
+      const smsMethod = String(integration.sms.method || 'POST').trim().toUpperCase()
 
       if (!smsUrl || !smsUser || !smsPassword) {
         return res.status(500).json({ success: false, message: 'Sistema de SMS não configurado' })
+      }
+
+      if (!['GET', 'POST'].includes(smsMethod)) {
+        return res.status(500).json({
+          success: false,
+          message: 'Configuração SMS inválida: método deve ser GET ou POST',
+          errorCode: 'SMS_CONFIG_INVALID_METHOD'
+        })
       }
 
       const phoneFormatted = formatPhoneForSMS(recoveryPhone)
@@ -1184,16 +1192,65 @@ class PasswordRecoveryController {
       const params = new URLSearchParams(paramsObj)
 
       try {
+        let smsResponse
         if (smsMethod === 'GET') {
-          await axios.get(`${smsUrl}?${params.toString()}`, { timeout: 10000 })
+          smsResponse = await axios.get(`${smsUrl}?${params.toString()}`, {
+            timeout: 10000,
+            validateStatus: (status) => status < 500
+          })
         } else {
-          await axios.post(smsUrl, params.toString(), {
+          smsResponse = await axios.post(smsUrl, params.toString(), {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            timeout: 10000
+            timeout: 10000,
+            validateStatus: (status) => status < 500
+          })
+        }
+
+        const { status, data } = smsResponse
+        let gatewayAccepted = false
+        let gatewayMessage = ''
+
+        if (status === 401) {
+          gatewayMessage = 'Token de autenticação não fornecido no gateway SMS'
+        } else if (status === 403) {
+          gatewayMessage = 'Token de autenticação inválido no gateway SMS'
+        } else if (status === 200) {
+          if (typeof data === 'object' && data !== null) {
+            if (data.success === false) {
+              gatewayMessage = data.message || data.error || 'Gateway SMS rejeitou o envio'
+            } else {
+              gatewayAccepted = true
+            }
+          } else {
+            // Alguns gateways retornam texto/HTML mesmo quando aceitam o envio.
+            gatewayAccepted = true
+          }
+        } else {
+          gatewayMessage = `Gateway SMS retornou HTTP ${status}`
+        }
+
+        if (!gatewayAccepted) {
+          logger.warn('Gateway SMS rejeitou envio 2FA do cliente', {
+            tenant_id: tenant?._id || null,
+            login,
+            sms_url: smsUrl,
+            sms_method: smsMethod,
+            gateway_status: status,
+            gateway_message: gatewayMessage,
+            gateway_data: typeof data === 'string' ? data.slice(0, 400) : data
+          })
+
+          return res.status(502).json({
+            success: false,
+            message: 'Falha ao enviar SMS de verificação',
+            errorCode: 'SMS_GATEWAY_REJECTED',
+            gatewayStatus: status,
+            gatewayReason: gatewayMessage
           })
         }
       } catch (smsError) {
         const gatewayStatus = smsError?.response?.status || null
+        const gatewayReason = smsError?.code || smsError?.message || 'SMS_GATEWAY_UNAVAILABLE'
         const gatewayData = smsError?.response?.data
         const gatewayDataPreview = typeof gatewayData === 'string'
           ? gatewayData.slice(0, 400)
@@ -1206,6 +1263,7 @@ class PasswordRecoveryController {
           login,
           sms_url: smsUrl,
           sms_method: smsMethod,
+          gateway_reason: gatewayReason,
           gateway_status: gatewayStatus,
           gateway_data: gatewayDataPreview
         })
@@ -1214,6 +1272,7 @@ class PasswordRecoveryController {
           success: false,
           message: 'Falha ao enviar SMS de verificação',
           errorCode: 'SMS_GATEWAY_ERROR',
+          gatewayReason,
           gatewayStatus
         })
       }
