@@ -758,6 +758,7 @@ class PasswordRecoveryController {
       // Enviar WhatsApp usando configuração Z-API
       const IntegrationService = require('../services/IntegrationService')
       const axios = require('axios')
+      const https = require('https')
       const { formatPhoneForSMS } = require('../utils/phone')
       const Tenant = require('../schemas/Tenant')
 
@@ -1191,34 +1192,48 @@ class PasswordRecoveryController {
         msg: mensagem
       }
       const params = new URLSearchParams(paramsObj)
+      const canonicalSmsHostname = 'mk-messenger.com.br'
       const isHttpsSmsEndpoint = /^https:\/\//i.test(String(smsUrl || ''))
 
-      const sendSmsRequest = async (allowInsecureTls = false) => {
+      const sendSmsRequest = async (targetUrl, allowInsecureTls = false) => {
+        const useHttps = /^https:\/\//i.test(String(targetUrl || ''))
         const baseOptions = {
           timeout: 10000,
           validateStatus: (status) => status < 500
         }
 
-        if (allowInsecureTls && isHttpsSmsEndpoint) {
+        if (allowInsecureTls && useHttps) {
           baseOptions.httpsAgent = new https.Agent({ rejectUnauthorized: false })
         }
 
         if (smsMethod === 'GET') {
-          return axios.get(`${smsUrl}?${params.toString()}`, baseOptions)
+          return axios.get(`${targetUrl}?${params.toString()}`, baseOptions)
         }
 
-        return axios.post(smsUrl, params.toString(), {
+        return axios.post(targetUrl, params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           ...baseOptions
         })
       }
 
+      const buildCanonicalUrl = (rawUrl) => {
+        try {
+          const parsed = new URL(rawUrl)
+          parsed.hostname = canonicalSmsHostname
+          return parsed.toString()
+        } catch {
+          return rawUrl
+        }
+      }
+
       try {
         let smsResponse
         let usedInsecureTlsRetry = false
+        let usedCanonicalHostRetry = false
+        let requestSmsUrl = smsUrl
 
         try {
-          smsResponse = await sendSmsRequest(false)
+          smsResponse = await sendSmsRequest(requestSmsUrl, false)
         } catch (firstSmsError) {
           const tlsRetryCodes = [
             'ERR_TLS_CERT_ALTNAME_INVALID',
@@ -1233,16 +1248,45 @@ class PasswordRecoveryController {
             throw firstSmsError
           }
 
-          usedInsecureTlsRetry = true
-          logger.warn('TLS do gateway SMS inválido; tentando novamente com rejectUnauthorized=false', {
-            tenant_id: tenant?._id || null,
-            login,
-            sms_url: smsUrl,
-            sms_method: smsMethod,
-            gateway_code: gatewayCode
-          })
+          const canonicalUrl = buildCanonicalUrl(smsUrl)
+          if (canonicalUrl !== smsUrl) {
+            usedCanonicalHostRetry = true
+            requestSmsUrl = canonicalUrl
+            logger.warn('TLS altname inválido no gateway SMS; tentando hostname canônico', {
+              tenant_id: tenant?._id || null,
+              login,
+              sms_url_original: smsUrl,
+              sms_url_retry: canonicalUrl,
+              sms_method: smsMethod,
+              gateway_code: gatewayCode
+            })
 
-          smsResponse = await sendSmsRequest(true)
+            try {
+              smsResponse = await sendSmsRequest(requestSmsUrl, false)
+            } catch (canonicalRetryError) {
+              usedInsecureTlsRetry = true
+              logger.warn('TLS do gateway SMS inválido; tentando novamente com rejectUnauthorized=false', {
+                tenant_id: tenant?._id || null,
+                login,
+                sms_url: requestSmsUrl,
+                sms_method: smsMethod,
+                gateway_code: canonicalRetryError?.code || gatewayCode
+              })
+
+              smsResponse = await sendSmsRequest(requestSmsUrl, true)
+            }
+          } else {
+            usedInsecureTlsRetry = true
+            logger.warn('TLS do gateway SMS inválido; tentando novamente com rejectUnauthorized=false', {
+              tenant_id: tenant?._id || null,
+              login,
+              sms_url: requestSmsUrl,
+              sms_method: smsMethod,
+              gateway_code: gatewayCode
+            })
+
+            smsResponse = await sendSmsRequest(requestSmsUrl, true)
+          }
         }
 
         const { status, data } = smsResponse
@@ -1272,8 +1316,9 @@ class PasswordRecoveryController {
           logger.warn('Gateway SMS rejeitou envio 2FA do cliente', {
             tenant_id: tenant?._id || null,
             login,
-            sms_url: smsUrl,
+            sms_url: requestSmsUrl,
             sms_method: smsMethod,
+            tls_canonical_host_retry: usedCanonicalHostRetry,
             tls_insecure_retry: usedInsecureTlsRetry,
             gateway_status: status,
             gateway_message: gatewayMessage,
