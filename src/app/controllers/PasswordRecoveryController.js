@@ -334,16 +334,7 @@ class PasswordRecoveryController {
   }
 
   static async resolveSmsGatewayConfig(tenant) {
-    const IntegrationService = require('../services/IntegrationService')
-
-    const integration = await IntegrationService.findByTenantAndType(tenant._id, 'sms')
-    const integrationEnabled = Boolean(integration?.sms?.enabled)
-    const integrationUrl = String(integration?.sms?.endpoint || integration?.sms?.url || '').trim()
-    const integrationUser = String(integration?.sms?.username || integration?.sms?.user || '').trim()
-    const integrationPassword = String(integration?.sms?.password || integration?.sms?.token || '').trim()
-    const integrationMethod = PasswordRecoveryController.normalizeSmsMethod(integration?.sms?.method || 'POST')
-
-    const integrationComplete = integrationEnabled && integrationUrl && integrationUser && integrationPassword
+    const integrationUrl = ''
     let sisOpcoesCanonicalHost = ''
 
     try {
@@ -427,16 +418,6 @@ class PasswordRecoveryController {
         user_set: !!mkAuthUser,
         password_set: !!mkAuthPassword
       })
-
-      if (integrationComplete) {
-        logger.warn('Fallback para configuração SMS da integration (sis_opcoes indisponível/incompleta)', {
-          tenant_id: tenant?._id || null,
-          integration_url: integrationUrl,
-          integration_enabled: !!integrationEnabled,
-          integration_user_set: !!integrationUser,
-          integration_password_set: !!integrationPassword
-        })
-      }
     } catch (error) {
       logger.warn('Falha ao obter configuração SMS em sis_opcoes', {
         tenant_id: tenant?._id || null,
@@ -444,31 +425,17 @@ class PasswordRecoveryController {
       })
     }
 
-    if (integrationComplete) {
-      logger.info('Configuração SMS final resolvida para 2FA: integration', {
-        tenant_id: tenant?._id || null,
-        sms_url: integrationUrl,
-        sms_method: integrationMethod
-      })
-
-      return {
-        source: 'integration',
-        enabled: true,
-        smsUrl: integrationUrl,
-        smsUser: integrationUser,
-        smsPassword: integrationPassword,
-        smsMethod: integrationMethod,
-        canonicalHost: sisOpcoesCanonicalHost
-      }
-    }
+    logger.warn('Configuração SMS indisponível para 2FA: modo agent-only ativo (sem fallback integration)', {
+      tenant_id: tenant?._id || null
+    })
 
     return {
-      source: 'incomplete',
-      enabled: integrationEnabled,
-      smsUrl: integrationUrl,
-      smsUser: integrationUser,
-      smsPassword: integrationPassword,
-      smsMethod: integrationMethod,
+      source: 'agent_only_incomplete',
+      enabled: false,
+      smsUrl: '',
+      smsUser: '',
+      smsPassword: '',
+      smsMethod: 'POST',
       canonicalHost: sisOpcoesCanonicalHost
     }
   }
