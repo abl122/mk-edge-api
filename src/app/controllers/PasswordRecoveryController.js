@@ -1081,13 +1081,28 @@ class PasswordRecoveryController {
         })
       }
 
-      await PasswordRecoveryController.createClientLogin2FAToken({
-        tenant,
-        login,
-        code: codigo,
-        method: methodNormalized,
-        contact: methodNormalized === 'email' ? recoveryEmail : recoveryPhone
-      })
+      try {
+        await PasswordRecoveryController.createClientLogin2FAToken({
+          tenant,
+          login,
+          code: codigo,
+          method: methodNormalized,
+          contact: methodNormalized === 'email' ? recoveryEmail : recoveryPhone
+        })
+      } catch (tokenError) {
+        logger.error('Falha ao criar token 2FA do cliente', {
+          error: tokenError?.message || String(tokenError),
+          stack: tokenError?.stack,
+          tenant_id: tenant?._id || null,
+          login,
+          method: methodNormalized
+        })
+        return res.status(500).json({
+          success: false,
+          message: 'Erro ao gerar código de verificação',
+          errorCode: 'TOKEN_CREATE_ERROR'
+        })
+      }
 
       const IntegrationService = require('../services/IntegrationService')
 
@@ -1168,12 +1183,38 @@ class PasswordRecoveryController {
       }
       const params = new URLSearchParams(paramsObj)
 
-      if (smsMethod === 'GET') {
-        await axios.get(`${smsUrl}?${params.toString()}`, { timeout: 10000 })
-      } else {
-        await axios.post(smsUrl, params.toString(), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          timeout: 10000
+      try {
+        if (smsMethod === 'GET') {
+          await axios.get(`${smsUrl}?${params.toString()}`, { timeout: 10000 })
+        } else {
+          await axios.post(smsUrl, params.toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            timeout: 10000
+          })
+        }
+      } catch (smsError) {
+        const gatewayStatus = smsError?.response?.status || null
+        const gatewayData = smsError?.response?.data
+        const gatewayDataPreview = typeof gatewayData === 'string'
+          ? gatewayData.slice(0, 400)
+          : gatewayData
+
+        logger.error('Falha no gateway SMS durante 2FA do cliente', {
+          error: smsError?.message || String(smsError),
+          stack: smsError?.stack,
+          tenant_id: tenant?._id || null,
+          login,
+          sms_url: smsUrl,
+          sms_method: smsMethod,
+          gateway_status: gatewayStatus,
+          gateway_data: gatewayDataPreview
+        })
+
+        return res.status(502).json({
+          success: false,
+          message: 'Falha ao enviar SMS de verificação',
+          errorCode: 'SMS_GATEWAY_ERROR',
+          gatewayStatus
         })
       }
 
