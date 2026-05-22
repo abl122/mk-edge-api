@@ -394,14 +394,14 @@ class PasswordRecoveryController {
           user_set: !!mkAuthUser
         })
 
-        logger.info('Usando configuração SMS de sis_opcoes para 2FA', {
+        logger.info('Usando configuração SMS de sis_opcao para 2FA', {
           tenant_id: tenant?._id || null,
           integration_url: integrationUrl,
-          sis_opcoes_url: mkAuthUrl
+          sis_opcao_url: mkAuthUrl
         })
 
         return {
-          source: 'sis_opcoes',
+          source: 'sis_opcao',
           enabled: true,
           smsUrl: mkAuthUrl,
           smsUser: mkAuthUser,
@@ -411,7 +411,7 @@ class PasswordRecoveryController {
         }
       }
 
-      logger.warn('Configuração SMS de sis_opcoes incompleta para 2FA', {
+      logger.warn('Configuração SMS de sis_opcao incompleta para 2FA', {
         tenant_id: tenant?._id || null,
         table: optionsTableUsed,
         mkauth_enabled: !!mkAuthEnabled,
@@ -420,7 +420,7 @@ class PasswordRecoveryController {
         password_set: !!mkAuthPassword
       })
     } catch (error) {
-      logger.warn('Falha ao obter configuração SMS em sis_opcoes', {
+      logger.warn('Falha ao obter configuração SMS em sis_opcao', {
         tenant_id: tenant?._id || null,
         error: error?.message || String(error)
       })
