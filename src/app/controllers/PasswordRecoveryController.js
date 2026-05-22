@@ -384,8 +384,15 @@ class PasswordRecoveryController {
         sisOpcoesCanonicalHost = ''
       }
 
-      const mkAuthComplete = mkAuthEnabled && mkAuthUrl && mkAuthUser && mkAuthPassword
+      const mkAuthComplete = !!mkAuthUrl && !!mkAuthUser && !!mkAuthPassword
       if (mkAuthComplete) {
+        if (!mkAuthEnabled) {
+          logger.warn('clmk_sms está desabilitado no MKAuth, mas 2FA seguirá com credenciais do agente (modo agent-only)', {
+            tenant_id: tenant?._id || null,
+            table: optionsTableUsed
+          })
+        }
+
         logger.info('Configuração SMS carregada do MKAuth', {
           tenant_id: tenant?._id || null,
           table: optionsTableUsed,
