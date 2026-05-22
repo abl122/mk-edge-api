@@ -356,14 +356,8 @@ class PasswordRecoveryController {
         )
       }
 
-      let optionsResult = null
-      let optionsTableUsed = 'sis_opcao'
-      try {
-        optionsResult = await fetchSmsOptions('sis_opcao')
-      } catch (firstTableError) {
-        optionsTableUsed = 'sis_opcoes'
-        optionsResult = await fetchSmsOptions('sis_opcoes')
-      }
+      const optionsTableUsed = 'sis_opcao'
+      const optionsResult = await fetchSmsOptions(optionsTableUsed)
 
       const optionsByName = {}
       for (const row of optionsResult?.data || []) {
@@ -1392,7 +1386,7 @@ class PasswordRecoveryController {
       }
       const isHttpsSmsEndpoint = /^https:\/\//i.test(String(smsUrl || ''))
       const legacyTlsCompatEnabled = String(process.env.SMS_TLS_INSECURE_COMPAT || 'true').toLowerCase() !== 'false'
-      const smsGatewayTimeoutMs = Number(process.env.SMS_GATEWAY_TIMEOUT_MS || 40000)
+      const smsGatewayTimeoutMs = Number(process.env.SMS_GATEWAY_TIMEOUT_MS || 10000)
 
       const normalizeSmsUrl = (rawUrl) => {
         try {
