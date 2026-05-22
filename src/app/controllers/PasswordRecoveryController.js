@@ -1406,6 +1406,7 @@ class PasswordRecoveryController {
       }
       const isHttpsSmsEndpoint = /^https:\/\//i.test(String(smsUrl || ''))
       const legacyTlsCompatEnabled = String(process.env.SMS_TLS_INSECURE_COMPAT || 'true').toLowerCase() !== 'false'
+      const smsGatewayTimeoutMs = Number(process.env.SMS_GATEWAY_TIMEOUT_MS || 40000)
 
       const normalizeSmsUrl = (rawUrl) => {
         try {
@@ -1426,7 +1427,7 @@ class PasswordRecoveryController {
       const sendSmsRequest = async (targetUrl, allowInsecureTls = false) => {
         const useHttps = /^https:\/\//i.test(String(targetUrl || ''))
         const baseOptions = {
-          timeout: 10000,
+          timeout: smsGatewayTimeoutMs,
           validateStatus: (status) => status < 500
         }
 
