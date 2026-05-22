@@ -348,21 +348,32 @@ class PasswordRecoveryController {
     let sisOpcoesCanonicalHost = ''
 
     try {
-      const optionsResult = await MkAuthAgentService.sendToAgent(
-        tenant,
-        `SELECT nome, valor
-         FROM sis_opcoes
-         WHERE nome IN (
-           'clmk_sms',
-           'sms_servidor',
-           'sms_dlogin',
-           'sms_conta',
-           'sms_senha',
-           'sms_token',
-           'sms_gt'
-         )`,
-        {}
-      )
+      const fetchSmsOptions = async (tableName) => {
+        return MkAuthAgentService.sendToAgent(
+          tenant,
+          `SELECT nome, valor
+           FROM ${tableName}
+           WHERE nome IN (
+             'clmk_sms',
+             'sms_servidor',
+             'sms_dlogin',
+             'sms_conta',
+             'sms_senha',
+             'sms_token',
+             'sms_gt'
+           )`,
+          {}
+        )
+      }
+
+      let optionsResult = null
+      let optionsTableUsed = 'sis_opcao'
+      try {
+        optionsResult = await fetchSmsOptions('sis_opcao')
+      } catch (firstTableError) {
+        optionsTableUsed = 'sis_opcoes'
+        optionsResult = await fetchSmsOptions('sis_opcoes')
+      }
 
       const optionsByName = {}
       for (const row of optionsResult?.data || []) {
@@ -385,6 +396,13 @@ class PasswordRecoveryController {
 
       const mkAuthComplete = mkAuthEnabled && mkAuthUrl && mkAuthUser && mkAuthPassword
       if (mkAuthComplete) {
+        logger.info('Configuração SMS carregada do MKAuth', {
+          tenant_id: tenant?._id || null,
+          table: optionsTableUsed,
+          endpoint_set: !!mkAuthUrl,
+          user_set: !!mkAuthUser
+        })
+
         if (preferSisOpcoes) {
           logger.info('Preferindo configuração SMS de sis_opcoes (integration com host privado/local)', {
             tenant_id: tenant?._id || null,
