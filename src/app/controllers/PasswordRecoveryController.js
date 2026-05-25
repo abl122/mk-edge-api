@@ -402,6 +402,23 @@ class PasswordRecoveryController {
     return [...new Set(urls)]
   }
 
+  static resolveSmsGatewayHostHeader(rawUrl) {
+    const publicHost = String(process.env.SMS_MESSENGER_PUBLIC_HOST || 'mk-messenger.com.br').trim().toLowerCase()
+    const privateHost = String(process.env.SMS_MESSENGER_PRIVATE_HOST || '172.31.255.3').trim().toLowerCase()
+    if (!publicHost || !privateHost) return ''
+
+    try {
+      const parsed = new URL(String(rawUrl || '').trim())
+      if (parsed.hostname.toLowerCase() === privateHost) {
+        return publicHost
+      }
+    } catch {
+      return ''
+    }
+
+    return ''
+  }
+
   static isPrivateOrLocalHost(hostname) {
     const host = String(hostname || '').trim().toLowerCase()
     if (!host) return false
@@ -818,10 +835,18 @@ class PasswordRecoveryController {
           ? String(smsRequestUrl || '').replace(/^https:\/\//i, 'http://')
           : smsRequestUrl
         const isKnownTlsIncompatibleGateway = /mk-messenger\.com\.br|172\.31\.255\.3/i.test(String(targetUrl || ''))
+        const hostHeader = PasswordRecoveryController.resolveSmsGatewayHostHeader(targetUrl)
 
         const requestOptions = {
           timeout: smsGatewayTimeoutMs,
           validateStatus: (status) => status < 500
+        }
+
+        if (hostHeader) {
+          requestOptions.headers = {
+            ...(requestOptions.headers || {}),
+            Host: hostHeader
+          }
         }
 
         // Aplicar httpsAgent sempre que allowInsecureTls for explícito (cobre redirects HTTP→HTTPS)
@@ -834,7 +859,10 @@ class PasswordRecoveryController {
         }
 
         return axios.post(targetUrl, params.toString(), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            ...(requestOptions.headers || {})
+          },
           ...requestOptions
         })
       }
@@ -1706,9 +1734,17 @@ class PasswordRecoveryController {
         })
         const useHttps = /^https:\/\//i.test(String(targetUrl || ''))
         const isKnownTlsIncompatibleGateway = /mk-messenger\.com\.br|172\.31\.255\.3/i.test(String(targetUrl || ''))
+        const hostHeader = PasswordRecoveryController.resolveSmsGatewayHostHeader(targetUrl)
         const baseOptions = {
           timeout: timeoutMs,
           validateStatus: (status) => status < 500
+        }
+
+        if (hostHeader) {
+          baseOptions.headers = {
+            ...(baseOptions.headers || {}),
+            Host: hostHeader
+          }
         }
 
         // Aplicar httpsAgent sempre que allowInsecureTls for explícito (cobre redirects HTTP→HTTPS)
@@ -1722,7 +1758,10 @@ class PasswordRecoveryController {
         }
 
         return axios.post(targetUrl, targetParams.toString(), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            ...(baseOptions.headers || {})
+          },
           ...baseOptions
         })
       }
