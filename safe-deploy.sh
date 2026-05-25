@@ -36,12 +36,14 @@ echo "🛑 Passo 2/5: Parando containers..."
 docker-compose stop
 
 echo ""
-echo "📥 Passo 3/5: Atualizando imagens..."
-docker-compose pull
+echo "📥 Passo 3/5: Atualizando imagem base do Mongo..."
+docker-compose pull mongo
 
 echo ""
-echo "🔄 Passo 4/5: Recriando containers..."
-# NÃO usar -v para preservar volumes
+echo "🔄 Passo 4/5: Rebuild da API e recriando containers..."
+# Rebuild da API para garantir que alterações locais (src/) entrem na imagem.
+# NÃO usar -v para preservar volumes.
+docker-compose build --no-cache app
 docker-compose up -d --force-recreate
 
 echo ""
