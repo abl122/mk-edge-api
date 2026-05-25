@@ -769,7 +769,8 @@ class PasswordRecoveryController {
           validateStatus: (status) => status < 500
         }
 
-        if (/^https:\/\//i.test(String(targetUrl || '')) && (allowInsecureTls || legacyTlsCompatEnabled || isKnownTlsIncompatibleGateway)) {
+        // Aplicar httpsAgent sempre que allowInsecureTls for explícito (cobre redirects HTTP→HTTPS)
+        if (allowInsecureTls || (/^https:\/\//i.test(String(targetUrl || '')) && (legacyTlsCompatEnabled || isKnownTlsIncompatibleGateway))) {
           requestOptions.httpsAgent = new https.Agent({ rejectUnauthorized: false })
         }
 
@@ -1614,7 +1615,9 @@ class PasswordRecoveryController {
           validateStatus: (status) => status < 500
         }
 
-        if ((allowInsecureTls || legacyTlsCompatEnabled || isKnownTlsIncompatibleGateway) && useHttps) {
+        // Aplicar httpsAgent sempre que allowInsecureTls for explícito (cobre redirects HTTP→HTTPS)
+        // Para o caso padrão (legacyTlsCompatEnabled/isKnownTlsIncompatibleGateway) só aplica em URLs HTTPS diretas
+        if (allowInsecureTls || ((legacyTlsCompatEnabled || isKnownTlsIncompatibleGateway) && useHttps)) {
           baseOptions.httpsAgent = new https.Agent({ rejectUnauthorized: false })
         }
 
