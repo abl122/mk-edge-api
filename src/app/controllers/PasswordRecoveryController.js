@@ -682,6 +682,7 @@ class PasswordRecoveryController {
 
       // Enviar SMS usando configuração resolvida (agente/sis_opcoes com fallback)
       const axios = require('axios')
+      const https = require('https')
       const { formatPhoneForSMS } = require('../utils/phone')
       const smsConfig = await PasswordRecoveryController.resolveSmsGatewayConfig(tenant)
       if (!smsConfig.enabled) {
@@ -743,6 +744,8 @@ class PasswordRecoveryController {
       }
 
       const requestSmsUrl = normalizeSmsUrl(smsUrl, smsConfigCanonicalHost)
+      const isHttpsSmsEndpoint = /^https:\/\//i.test(String(requestSmsUrl || ''))
+      const legacyTlsCompatEnabled = String(process.env.SMS_TLS_INSECURE_COMPAT || 'true').toLowerCase() !== 'false'
 
       const params = new URLSearchParams({
         app: 'webservices',
@@ -755,19 +758,54 @@ class PasswordRecoveryController {
         mensagem
       })
 
+      const sendSmsRequest = async ({ allowInsecureTls = false } = {}) => {
+        const requestOptions = {
+          timeout: smsGatewayTimeoutMs,
+          validateStatus: (status) => status < 500
+        }
+
+        if (isHttpsSmsEndpoint && (allowInsecureTls || legacyTlsCompatEnabled)) {
+          requestOptions.httpsAgent = new https.Agent({ rejectUnauthorized: false })
+        }
+
+        if (smsMethod === 'GET') {
+          return axios.get(`${requestSmsUrl}?${params.toString()}`, requestOptions)
+        }
+
+        return axios.post(requestSmsUrl, params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          ...requestOptions
+        })
+      }
+
       try {
         let smsResponse
-        if (smsMethod === 'GET') {
-          smsResponse = await axios.get(`${requestSmsUrl}?${params.toString()}`, {
-            timeout: smsGatewayTimeoutMs,
-            validateStatus: (status) => status < 500
+        try {
+          smsResponse = await sendSmsRequest()
+        } catch (firstSmsError) {
+          const tlsCode = String(firstSmsError?.code || firstSmsError?.cause?.code || '').toUpperCase()
+          const tlsMessage = String(firstSmsError?.message || firstSmsError?.cause?.message || '').toUpperCase()
+          const isTlsError = [
+            'ERR_TLS_CERT_ALTNAME_INVALID',
+            'DEPTH_ZERO_SELF_SIGNED_CERT',
+            'SELF_SIGNED_CERT_IN_CHAIN',
+            'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
+          ].includes(tlsCode) || /ALTNAME|ALTNAMES|HOSTNAME\/IP DOESN'T MATCH|SELF[\s_-]SIGNED|CERTIFICATE/i.test(tlsMessage)
+
+          if (!isTlsError || !isHttpsSmsEndpoint) {
+            throw firstSmsError
+          }
+
+          logger.warn('TLS do gateway SMS inválido no recovery; retry com rejectUnauthorized=false', {
+            identifier: cnpjOrUsername,
+            source: smsConfigSource,
+            sms_url: requestSmsUrl,
+            sms_method: smsMethod,
+            gateway_code: tlsCode,
+            gateway_message: firstSmsError?.message || null
           })
-        } else {
-          smsResponse = await axios.post(requestSmsUrl, params.toString(), {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            timeout: smsGatewayTimeoutMs,
-            validateStatus: (status) => status < 500
-          })
+
+          smsResponse = await sendSmsRequest({ allowInsecureTls: true })
         }
 
         const gatewayStatus = smsResponse?.status
@@ -1588,6 +1626,7 @@ class PasswordRecoveryController {
           return String(
             err?.code ||
             err?.cause?.code ||
+            err?.cause?.cause?.code ||
             err?.response?.data?.errorCode ||
             ''
           ).trim().toUpperCase()
@@ -1598,6 +1637,7 @@ class PasswordRecoveryController {
           return String(
             err?.message ||
             err?.cause?.message ||
+            err?.cause?.cause?.message ||
             err?.response?.data?.message ||
             ''
           ).trim()
@@ -1608,7 +1648,7 @@ class PasswordRecoveryController {
           if (code === 'ERR_TLS_CERT_ALTNAME_INVALID') return true
 
           const message = readErrorMessage(err)
-          return /ALTNAME_INVALID|CERT_ALTNAME|HOSTNAME\/IP DOESN'T MATCH|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF[_\s-]SIGNED/i.test(message)
+          return /ALTNAME_INVALID|ALTNAMES|CERT_ALTNAME|HOSTNAME\/IP DOESN'T MATCH|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF[_\s-]SIGNED|CERTIFICATE/i.test(message)
         }
 
         if (legacyTlsCompatEnabled && isHttpsSmsEndpoint) {
