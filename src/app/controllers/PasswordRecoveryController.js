@@ -649,80 +649,128 @@ class PasswordRecoveryController {
         contact: recoveryPhone
       })
 
-      // Enviar SMS usando configuração do sistema
-      const IntegrationService = require('../services/IntegrationService')
+      // Enviar SMS usando configuração resolvida (agente/sis_opcoes com fallback)
       const axios = require('axios')
-      const https = require('https')
       const { formatPhoneForSMS } = require('../utils/phone')
-      const Tenant = require('../schemas/Tenant')
-
-      // Para admin, usar configuração do primeiro tenant disponível
-      // Para portal user, usar configuração do tenant dele
-      let tenantId = tenant._id
-      
-      if (!tenantId) {
-        // Admin não tem tenant, usar primeiro tenant do sistema
-        const firstTenant = await Tenant.findOne()
-        if (!firstTenant) {
-          logger.error('Nenhum tenant encontrado para enviar SMS')
-          return res.status(500).json({
-            success: false,
-            message: 'Sistema de SMS não configurado'
-          })
-        }
-        tenantId = firstTenant._id
+      const smsConfig = await PasswordRecoveryController.resolveSmsGatewayConfig(tenant)
+      if (!smsConfig.enabled) {
+        logger.warn('Configuração SMS desabilitada para recuperação', {
+          tenant_id: tenant?._id || null,
+          source: smsConfig?.source || 'unknown'
+        })
+        return res.status(500).json({ success: false, message: 'Sistema de SMS não configurado' })
       }
 
-      const integration = await IntegrationService.findByTenantAndType(tenantId, 'sms')
-      
-      if (!integration?.sms?.enabled) {
-        logger.error('SMS não configurado ou habilitado')
+      const smsUrl = String(smsConfig.smsUrl || '').trim()
+      const smsUser = String(smsConfig.smsUser || '').trim()
+      const smsPassword = String(smsConfig.smsPassword || '').trim()
+      const smsMethod = String(smsConfig.smsMethod || 'POST').trim().toUpperCase()
+      const smsConfigSource = String(smsConfig.source || 'unknown')
+      const smsConfigCanonicalHost = String(smsConfig.canonicalHost || '').trim().toLowerCase()
+
+      if (!smsUrl || !smsUser || !smsPassword) {
+        logger.warn('Configuração SMS incompleta para recuperação', {
+          tenant_id: tenant?._id || null,
+          source: smsConfigSource,
+          endpoint_set: !!smsUrl,
+          user_set: !!smsUser,
+          password_set: !!smsPassword
+        })
         return res.status(500).json({
           success: false,
           message: 'Sistema de SMS não configurado'
         })
       }
 
-      const smsUrl = String(integration.sms.endpoint || integration.sms.url || '').trim()
-      const smsUser = integration.sms.username || integration.sms.user
-      const smsPassword = integration.sms.token || integration.sms.password
-      const smsMethod = integration.sms.method || 'POST'
-
-      if (!smsUrl || !smsUser || !smsPassword) {
-        logger.error('Configuração SMS incompleta')
+      if (!['GET', 'POST'].includes(smsMethod)) {
         return res.status(500).json({
           success: false,
-          message: 'Sistema de SMS não configurado'
+          message: 'Configuração SMS inválida: método deve ser GET ou POST'
         })
       }
 
       const phoneFormatted = formatPhoneForSMS(recoveryPhone)
       const mensagem = `Seu código de recuperação MK-Edge é: ${codigo}. Válido por 10 minutos.`
+      const smsNumber = `55${phoneFormatted}`
+      const smsGatewayTimeoutMs = Number(process.env.SMS_GATEWAY_TIMEOUT_MS || 10000)
 
-      const paramsObj = {
-        u: smsUser,
-        p: smsPassword,
-        to: `55${phoneFormatted}`,
-        msg: mensagem
+      const normalizeSmsUrl = (rawUrl, canonicalHost = '') => {
+        try {
+          const parsed = new URL(rawUrl)
+          const normalizedCanonicalHost = String(canonicalHost || '').trim().toLowerCase()
+          const isMessengerHost = normalizedCanonicalHost && parsed.hostname.toLowerCase() === normalizedCanonicalHost
+          const hasPath = parsed.pathname && parsed.pathname !== '/'
+
+          if (isMessengerHost && !hasPath) {
+            parsed.pathname = '/sms/index.php'
+          }
+
+          return parsed.toString()
+        } catch {
+          return rawUrl
+        }
       }
 
-      const params = new URLSearchParams(paramsObj)
+      const requestSmsUrl = normalizeSmsUrl(smsUrl, smsConfigCanonicalHost)
+
+      const params = new URLSearchParams({
+        app: 'webservices',
+        u: smsUser,
+        p: smsPassword,
+        to: smsNumber,
+        msg: mensagem,
+        token: smsUser,
+        celular: `+${smsNumber}`,
+        mensagem
+      })
 
       try {
         let smsResponse
         if (smsMethod === 'GET') {
-          smsResponse = await axios.get(`${smsUrl}?${params.toString()}`, { timeout: 10000 })
+          smsResponse = await axios.get(`${requestSmsUrl}?${params.toString()}`, {
+            timeout: smsGatewayTimeoutMs,
+            validateStatus: (status) => status < 500
+          })
         } else {
-          smsResponse = await axios.post(smsUrl, params.toString(), {
+          smsResponse = await axios.post(requestSmsUrl, params.toString(), {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            timeout: 10000
+            timeout: smsGatewayTimeoutMs,
+            validateStatus: (status) => status < 500
+          })
+        }
+
+        const gatewayStatus = smsResponse?.status
+        const gatewayData = smsResponse?.data
+        const gatewayAccepted =
+          gatewayStatus === 200 &&
+          (
+            typeof gatewayData !== 'object' ||
+            gatewayData === null ||
+            gatewayData.success !== false
+          )
+
+        if (!gatewayAccepted) {
+          logger.warn('Gateway SMS rejeitou envio de recuperação', {
+            identifier: cnpjOrUsername,
+            source: smsConfigSource,
+            sms_url: requestSmsUrl,
+            sms_method: smsMethod,
+            gateway_status: gatewayStatus,
+            gateway_data: typeof gatewayData === 'string' ? gatewayData.slice(0, 400) : gatewayData
+          })
+
+          return res.status(502).json({
+            success: false,
+            message: 'Falha ao enviar SMS de recuperação',
+            gatewayStatus
           })
         }
 
         logger.info('Código SMS enviado com sucesso', {
           identifier: cnpjOrUsername,
+          source: smsConfigSource,
           telefone: phoneFormatted,
-          response: smsResponse.data
+          response: gatewayData
         })
 
         return res.json({
@@ -730,10 +778,11 @@ class PasswordRecoveryController {
           message: 'Código enviado via SMS'
         })
       } catch (smsError) {
-        logger.error('Erro ao enviar SMS:', smsError.message)
-        return res.status(500).json({
+        logger.error('Erro ao enviar SMS de recuperação:', smsError.message)
+        return res.status(502).json({
           success: false,
-          message: 'Erro ao enviar SMS: ' + smsError.message
+          message: 'Falha ao enviar SMS de recuperação',
+          gatewayStatus: smsError?.response?.status || null
         })
       }
 
