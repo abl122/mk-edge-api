@@ -196,6 +196,50 @@ class PasswordRecoveryController {
     return User.findOne(PasswordRecoveryController.buildIdentifierQuery(identifier))
   }
 
+  static isDocumentLike(value) {
+    const digits = PasswordRecoveryController.normalizeClientDocument(value)
+    return [11, 14].includes(digits.length)
+  }
+
+  static async resolveRecoveryIdentity(req, identifier) {
+    const user = await PasswordRecoveryController.findLocalUserByIdentifier(identifier)
+    const tenant = await PasswordRecoveryController.resolveTenantForRecovery(req, user)
+
+    let login = String(user?.login || '').trim()
+    let client = null
+
+    if (tenant && tenant.usaAgente && tenant.usaAgente() && PasswordRecoveryController.isDocumentLike(identifier)) {
+      client = await PasswordRecoveryController.findClientByDocument(tenant, identifier)
+      const clientLogin = String(client?.login || '').trim()
+      if (clientLogin) {
+        login = clientLogin
+      }
+    }
+
+    const contacts = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
+      req,
+      user,
+      login || identifier
+    )
+
+    const clientEmail = PasswordRecoveryController.sanitizeEmail(client?.email)
+    const clientPhone = PasswordRecoveryController.sanitizePhone(client?.celular || client?.fone)
+
+    const email = contacts.email || clientEmail
+    const phone = contacts.phone || clientPhone
+
+    return {
+      user,
+      tenant,
+      client,
+      login,
+      email,
+      phone,
+      emailAvailable: !!email,
+      phoneAvailable: !!phone
+    }
+  }
+
   static async createRecoveryToken({ user, tenant, login, code, method, contact }) {
     await PasswordRecoveryToken.deleteMany({
       login,
@@ -551,20 +595,14 @@ class PasswordRecoveryController {
         })
       }
 
-      // Remove formatação do CNPJ/CPF
-      const cleanIdentifier = identifier.replace(/[.\-\/]/g, '')
-
-      // Procura na tabela users (por login ou email)
-      const user = await User.findOne(
-        PasswordRecoveryController.buildIdentifierQuery(identifier)
-      ).lean()
-
-      // Usuário MKAuth: usa cadastro local e fallback no MKAuth Agent.
-      const { email, phone, emailAvailable, phoneAvailable } = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
-        req,
+      const resolved = await PasswordRecoveryController.resolveRecoveryIdentity(req, identifier)
+      const {
         user,
-        identifier
-      )
+        email,
+        phone,
+        emailAvailable,
+        phoneAvailable
+      } = resolved
 
       const mascaraEmail = PasswordRecoveryController.maskEmail(email)
       const mascaraPhone = PasswordRecoveryController.maskPhone(phone)
@@ -612,18 +650,12 @@ class PasswordRecoveryController {
         })
       }
 
-      const user = await PasswordRecoveryController.findLocalUserByIdentifier(cnpjOrUsername)
-      const login = String(user?.login || cnpjOrUsername).trim()
+      const resolved = await PasswordRecoveryController.resolveRecoveryIdentity(req, cnpjOrUsername)
+      const { user, tenant, login, phone: recoveryPhone } = resolved
 
       if (!login) {
         return res.status(400).json({ success: false, message: 'Usuário inválido' })
       }
-
-      const { phone: recoveryPhone } = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
-        req,
-        user,
-        login
-      )
 
       if (!recoveryPhone) {
         return res.status(400).json({
@@ -635,7 +667,6 @@ class PasswordRecoveryController {
       // Gerar código de 6 dígitos
       const codigo = Math.floor(100000 + Math.random() * 900000).toString()
 
-      const tenant = await PasswordRecoveryController.resolveTenantForRecovery(req, user)
       if (!tenant) {
         return res.status(500).json({ success: false, message: 'Tenant não encontrado para recuperação' })
       }
@@ -810,18 +841,12 @@ class PasswordRecoveryController {
         })
       }
 
-      const user = await PasswordRecoveryController.findLocalUserByIdentifier(cnpjOrUsername)
-      const login = String(user?.login || cnpjOrUsername).trim()
+      const resolved = await PasswordRecoveryController.resolveRecoveryIdentity(req, cnpjOrUsername)
+      const { user, tenant, login, email: recoveryEmail } = resolved
 
       if (!login) {
         return res.status(400).json({ success: false, message: 'Usuário inválido' })
       }
-
-      const { email: recoveryEmail } = await PasswordRecoveryController.resolveRecoveryContactsWithFallback(
-        req,
-        user,
-        login
-      )
 
       if (!recoveryEmail) {
         return res.status(400).json({
@@ -833,7 +858,6 @@ class PasswordRecoveryController {
       // Gerar código de 6 dígitos
       const codigo = Math.floor(100000 + Math.random() * 900000).toString()
 
-      const tenant = await PasswordRecoveryController.resolveTenantForRecovery(req, user)
       if (!tenant) {
         return res.status(500).json({ success: false, message: 'Tenant não encontrado para recuperação' })
       }
@@ -1131,14 +1155,13 @@ class PasswordRecoveryController {
         })
       }
 
-      const user = await PasswordRecoveryController.findLocalUserByIdentifier(cnpjOrUsername)
-      const login = String(user?.login || cnpjOrUsername).trim()
+      const resolved = await PasswordRecoveryController.resolveRecoveryIdentity(req, cnpjOrUsername)
+      const { user, tenant, login } = resolved
 
       if (!login) {
         return res.status(400).json({ success: false, message: 'Usuário inválido' })
       }
 
-      const tenant = await PasswordRecoveryController.resolveTenantForRecovery(req, user)
       if (!tenant) {
         return res.status(500).json({ success: false, message: 'Tenant não encontrado para recuperação' })
       }
