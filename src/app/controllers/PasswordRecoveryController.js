@@ -746,6 +746,7 @@ class PasswordRecoveryController {
       const requestSmsUrl = normalizeSmsUrl(smsUrl, smsConfigCanonicalHost)
       const isHttpsSmsEndpoint = /^https:\/\//i.test(String(requestSmsUrl || ''))
       const legacyTlsCompatEnabled = String(process.env.SMS_TLS_INSECURE_COMPAT || 'true').toLowerCase() !== 'false'
+      const isKnownTlsIncompatibleGateway = /mk-messenger\.com\.br/i.test(String(requestSmsUrl || ''))
 
       const params = new URLSearchParams({
         app: 'webservices',
@@ -764,7 +765,7 @@ class PasswordRecoveryController {
           validateStatus: (status) => status < 500
         }
 
-        if (isHttpsSmsEndpoint && (allowInsecureTls || legacyTlsCompatEnabled)) {
+        if (isHttpsSmsEndpoint && (allowInsecureTls || legacyTlsCompatEnabled || isKnownTlsIncompatibleGateway)) {
           requestOptions.httpsAgent = new https.Agent({ rejectUnauthorized: false })
         }
 
@@ -1546,6 +1547,7 @@ class PasswordRecoveryController {
       const isHttpsSmsEndpoint = /^https:\/\//i.test(String(smsUrl || ''))
       const legacyTlsCompatEnabled = String(process.env.SMS_TLS_INSECURE_COMPAT || 'true').toLowerCase() !== 'false'
       const smsGatewayTimeoutMs = Number(process.env.SMS_GATEWAY_TIMEOUT_MS || 10000)
+      const isKnownTlsIncompatibleGateway = /mk-messenger\.com\.br/i.test(String(smsUrl || ''))
 
       const normalizeSmsUrl = (rawUrl, canonicalHost = '') => {
         try {
@@ -1590,7 +1592,7 @@ class PasswordRecoveryController {
           validateStatus: (status) => status < 500
         }
 
-        if ((allowInsecureTls || legacyTlsCompatEnabled) && useHttps) {
+        if ((allowInsecureTls || legacyTlsCompatEnabled || isKnownTlsIncompatibleGateway) && useHttps) {
           baseOptions.httpsAgent = new https.Agent({ rejectUnauthorized: false })
         }
 
