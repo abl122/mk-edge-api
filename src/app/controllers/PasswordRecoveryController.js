@@ -347,6 +347,61 @@ class PasswordRecoveryController {
     return String(value || '').trim().toUpperCase()
   }
 
+  static readSmsGatewayErrorCode(error) {
+    if (!error || typeof error !== 'object') return ''
+    return String(
+      error?.code ||
+      error?.cause?.code ||
+      error?.cause?.cause?.code ||
+      error?.response?.data?.errorCode ||
+      ''
+    ).trim().toUpperCase()
+  }
+
+  static readSmsGatewayErrorMessage(error) {
+    if (!error || typeof error !== 'object') return ''
+    return String(
+      error?.message ||
+      error?.cause?.message ||
+      error?.cause?.cause?.message ||
+      error?.response?.data?.message ||
+      ''
+    ).trim()
+  }
+
+  static hasTlsCertificateError(error) {
+    const code = PasswordRecoveryController.readSmsGatewayErrorCode(error)
+    if (code === 'ERR_TLS_CERT_ALTNAME_INVALID') return true
+
+    const message = PasswordRecoveryController.readSmsGatewayErrorMessage(error)
+    return /ALTNAME_INVALID|ALTNAMES|CERT_ALTNAME|HOSTNAME\/IP DOESN'T MATCH|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF[_\s-]SIGNED|CERTIFICATE/i.test(message)
+  }
+
+  static isRetryableSmsGatewayCode(code) {
+    return ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED'].includes(String(code || '').trim().toUpperCase())
+  }
+
+  static buildSmsGatewayUrls(rawUrl) {
+    const primaryUrl = String(rawUrl || '').trim()
+    if (!primaryUrl) return []
+
+    const publicHost = String(process.env.SMS_MESSENGER_PUBLIC_HOST || 'mk-messenger.com.br').trim().toLowerCase()
+    const privateHost = String(process.env.SMS_MESSENGER_PRIVATE_HOST || '172.31.255.3').trim()
+    const urls = [primaryUrl]
+
+    try {
+      const parsed = new URL(primaryUrl)
+      if (parsed.hostname.toLowerCase() === publicHost && privateHost) {
+        parsed.hostname = privateHost
+        urls.push(parsed.toString())
+      }
+    } catch {
+      // Mantém apenas URL primária quando não for possível parsear.
+    }
+
+    return [...new Set(urls)]
+  }
+
   static isPrivateOrLocalHost(hostname) {
     const host = String(hostname || '').trim().toLowerCase()
     if (!host) return false
@@ -744,9 +799,8 @@ class PasswordRecoveryController {
       }
 
       const requestSmsUrl = normalizeSmsUrl(smsUrl, smsConfigCanonicalHost)
-      const isHttpsSmsEndpoint = /^https:\/\//i.test(String(requestSmsUrl || ''))
       const legacyTlsCompatEnabled = String(process.env.SMS_TLS_INSECURE_COMPAT || 'true').toLowerCase() !== 'false'
-      const isKnownTlsIncompatibleGateway = /mk-messenger\.com\.br/i.test(String(requestSmsUrl || ''))
+      const gatewayUrlCandidates = PasswordRecoveryController.buildSmsGatewayUrls(requestSmsUrl)
 
       const params = new URLSearchParams({
         app: 'webservices',
@@ -759,10 +813,11 @@ class PasswordRecoveryController {
         mensagem
       })
 
-      const sendSmsRequest = async ({ allowInsecureTls = false, forceHttp = false } = {}) => {
+      const sendSmsRequest = async ({ smsRequestUrl = requestSmsUrl, allowInsecureTls = false, forceHttp = false } = {}) => {
         const targetUrl = forceHttp
-          ? String(requestSmsUrl || '').replace(/^https:\/\//i, 'http://')
-          : requestSmsUrl
+          ? String(smsRequestUrl || '').replace(/^https:\/\//i, 'http://')
+          : smsRequestUrl
+        const isKnownTlsIncompatibleGateway = /mk-messenger\.com\.br|172\.31\.255\.3/i.test(String(targetUrl || ''))
 
         const requestOptions = {
           timeout: smsGatewayTimeoutMs,
@@ -786,46 +841,88 @@ class PasswordRecoveryController {
 
       try {
         let smsResponse
-        try {
-          smsResponse = await sendSmsRequest()
-        } catch (firstSmsError) {
-          const tlsCode = String(firstSmsError?.code || firstSmsError?.cause?.code || '').toUpperCase()
-          const tlsMessage = String(firstSmsError?.message || firstSmsError?.cause?.message || '').toUpperCase()
-          const isTlsError = [
-            'ERR_TLS_CERT_ALTNAME_INVALID',
-            'DEPTH_ZERO_SELF_SIGNED_CERT',
-            'SELF_SIGNED_CERT_IN_CHAIN',
-            'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
-          ].includes(tlsCode) || /ALTNAME|ALTNAMES|HOSTNAME\/IP DOESN'T MATCH|SELF[\s_-]SIGNED|CERTIFICATE/i.test(tlsMessage)
+        let smsResponseUrl = requestSmsUrl
+        let lastSmsError = null
 
-          if (!isTlsError || !isHttpsSmsEndpoint) {
-            throw firstSmsError
-          }
-
-          logger.warn('TLS do gateway SMS inválido no recovery; retry com rejectUnauthorized=false', {
-            identifier: cnpjOrUsername,
-            source: smsConfigSource,
-            sms_url: requestSmsUrl,
-            sms_method: smsMethod,
-            gateway_code: tlsCode,
-            gateway_message: firstSmsError?.message || null
-          })
+        for (const gatewayUrlCandidate of gatewayUrlCandidates) {
+          const isHttpsSmsEndpoint = /^https:\/\//i.test(String(gatewayUrlCandidate || ''))
 
           try {
-            smsResponse = await sendSmsRequest({ allowInsecureTls: true })
-          } catch (retryTlsError) {
-            logger.warn('Retry TLS inseguro falhou no recovery; tentando gateway via HTTP', {
-              identifier: cnpjOrUsername,
-              source: smsConfigSource,
-              sms_url_https: requestSmsUrl,
-              sms_url_http: String(requestSmsUrl || '').replace(/^https:\/\//i, 'http://'),
-              sms_method: smsMethod,
-              gateway_code: String(retryTlsError?.code || retryTlsError?.cause?.code || ''),
-              gateway_message: retryTlsError?.message || null
-            })
+            try {
+              smsResponse = await sendSmsRequest({ smsRequestUrl: gatewayUrlCandidate })
+            } catch (firstSmsError) {
+              const tlsCode = PasswordRecoveryController.readSmsGatewayErrorCode(firstSmsError)
+              const tlsMessage = PasswordRecoveryController.readSmsGatewayErrorMessage(firstSmsError)
+              const isTlsError = [
+                'ERR_TLS_CERT_ALTNAME_INVALID',
+                'DEPTH_ZERO_SELF_SIGNED_CERT',
+                'SELF_SIGNED_CERT_IN_CHAIN',
+                'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
+              ].includes(tlsCode) || PasswordRecoveryController.hasTlsCertificateError(firstSmsError)
 
-            smsResponse = await sendSmsRequest({ forceHttp: true })
+              if (!isTlsError || !isHttpsSmsEndpoint) {
+                throw firstSmsError
+              }
+
+              logger.warn('TLS do gateway SMS inválido no recovery; retry com rejectUnauthorized=false', {
+                identifier: cnpjOrUsername,
+                source: smsConfigSource,
+                sms_url: gatewayUrlCandidate,
+                sms_method: smsMethod,
+                gateway_code: tlsCode,
+                gateway_message: tlsMessage || null
+              })
+
+              try {
+                smsResponse = await sendSmsRequest({
+                  smsRequestUrl: gatewayUrlCandidate,
+                  allowInsecureTls: true
+                })
+              } catch (retryTlsError) {
+                logger.warn('Retry TLS inseguro falhou no recovery; tentando gateway via HTTP', {
+                  identifier: cnpjOrUsername,
+                  source: smsConfigSource,
+                  sms_url_https: gatewayUrlCandidate,
+                  sms_url_http: String(gatewayUrlCandidate || '').replace(/^https:\/\//i, 'http://'),
+                  sms_method: smsMethod,
+                  gateway_code: PasswordRecoveryController.readSmsGatewayErrorCode(retryTlsError),
+                  gateway_message: PasswordRecoveryController.readSmsGatewayErrorMessage(retryTlsError) || null
+                })
+
+                smsResponse = await sendSmsRequest({
+                  smsRequestUrl: gatewayUrlCandidate,
+                  forceHttp: true
+                })
+              }
+            }
+
+            smsResponseUrl = gatewayUrlCandidate
+            break
+          } catch (candidateError) {
+            lastSmsError = candidateError
+            const errorCode = PasswordRecoveryController.readSmsGatewayErrorCode(candidateError)
+            const hasAnotherCandidate = gatewayUrlCandidates[gatewayUrlCandidates.length - 1] !== gatewayUrlCandidate
+            const shouldTryNextHost = PasswordRecoveryController.isRetryableSmsGatewayCode(errorCode) || PasswordRecoveryController.hasTlsCertificateError(candidateError)
+
+            if (hasAnotherCandidate && shouldTryNextHost) {
+              logger.warn('Gateway SMS indisponível via domínio público no recovery; tentando host privado', {
+                identifier: cnpjOrUsername,
+                source: smsConfigSource,
+                sms_url_current: gatewayUrlCandidate,
+                sms_url_next: gatewayUrlCandidates[gatewayUrlCandidates.indexOf(gatewayUrlCandidate) + 1] || null,
+                sms_method: smsMethod,
+                gateway_code: errorCode,
+                gateway_message: PasswordRecoveryController.readSmsGatewayErrorMessage(candidateError) || null
+              })
+              continue
+            }
+
+            throw candidateError
           }
+        }
+
+        if (!smsResponse && lastSmsError) {
+          throw lastSmsError
         }
 
         const gatewayStatus = smsResponse?.status
@@ -842,7 +939,7 @@ class PasswordRecoveryController {
           logger.warn('Gateway SMS rejeitou envio de recuperação', {
             identifier: cnpjOrUsername,
             source: smsConfigSource,
-            sms_url: requestSmsUrl,
+            sms_url: smsResponseUrl,
             sms_method: smsMethod,
             gateway_status: gatewayStatus,
             gateway_data: typeof gatewayData === 'string' ? gatewayData.slice(0, 400) : gatewayData
@@ -1563,10 +1660,8 @@ class PasswordRecoveryController {
       const phoneFormatted = formatPhoneForSMS(recoveryPhone)
       const mensagem = `Seu código de login MK-Edge é: ${codigo}. Válido por 10 minutos.`
       const smsNumber = `55${phoneFormatted}`
-      const isHttpsSmsEndpoint = /^https:\/\//i.test(String(smsUrl || ''))
       const legacyTlsCompatEnabled = String(process.env.SMS_TLS_INSECURE_COMPAT || 'true').toLowerCase() !== 'false'
       const smsGatewayTimeoutMs = Number(process.env.SMS_GATEWAY_TIMEOUT_MS || 10000)
-      const isKnownTlsIncompatibleGateway = /mk-messenger\.com\.br/i.test(String(smsUrl || ''))
 
       const normalizeSmsUrl = (rawUrl, canonicalHost = '') => {
         try {
@@ -1610,6 +1705,7 @@ class PasswordRecoveryController {
           mensagem
         })
         const useHttps = /^https:\/\//i.test(String(targetUrl || ''))
+        const isKnownTlsIncompatibleGateway = /mk-messenger\.com\.br|172\.31\.255\.3/i.test(String(targetUrl || ''))
         const baseOptions = {
           timeout: timeoutMs,
           validateStatus: (status) => status < 500
@@ -1648,37 +1744,7 @@ class PasswordRecoveryController {
           smsConfigCandidates.push(smsConfig.fallback)
         }
 
-        const readErrorCode = (err) => {
-          if (!err || typeof err !== 'object') return ''
-          return String(
-            err?.code ||
-            err?.cause?.code ||
-            err?.cause?.cause?.code ||
-            err?.response?.data?.errorCode ||
-            ''
-          ).trim().toUpperCase()
-        }
-
-        const readErrorMessage = (err) => {
-          if (!err || typeof err !== 'object') return ''
-          return String(
-            err?.message ||
-            err?.cause?.message ||
-            err?.cause?.cause?.message ||
-            err?.response?.data?.message ||
-            ''
-          ).trim()
-        }
-
-        const hasTlsCertError = (err) => {
-          const code = readErrorCode(err)
-          if (code === 'ERR_TLS_CERT_ALTNAME_INVALID') return true
-
-          const message = readErrorMessage(err)
-          return /ALTNAME_INVALID|ALTNAMES|CERT_ALTNAME|HOSTNAME\/IP DOESN'T MATCH|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF[_\s-]SIGNED|CERTIFICATE/i.test(message)
-        }
-
-        if (legacyTlsCompatEnabled && isHttpsSmsEndpoint) {
+        if (legacyTlsCompatEnabled && /^https:\/\//i.test(String(activeSmsConfig.smsUrl || ''))) {
           logger.warn('Compatibilidade TLS insegura para gateway SMS está ativa no 2FA', {
             tenant_id: tenant?._id || null,
             login,
@@ -1689,112 +1755,142 @@ class PasswordRecoveryController {
 
         for (const gatewayConfig of smsConfigCandidates) {
           const requestSmsUrl = normalizeSmsUrl(gatewayConfig.smsUrl, gatewayConfig.canonicalHost)
+          const gatewayUrlCandidates = PasswordRecoveryController.buildSmsGatewayUrls(requestSmsUrl)
           const currentSmsMethod = String(gatewayConfig.smsMethod || 'POST').trim().toUpperCase()
           const gatewaySource = String(gatewayConfig.source || 'unknown')
 
           try {
-            logger.info('Enviando 2FA SMS para gateway', {
-              tenant_id: tenant?._id || null,
-              source: gatewaySource,
-              sms_method: currentSmsMethod,
-              sms_url: requestSmsUrl
-            })
-
-            smsResponse = await sendSmsRequest({
-              ...gatewayConfig,
-              smsUrl: requestSmsUrl,
-              smsMethod: currentSmsMethod
-            })
-
-            activeSmsConfig = {
-              ...gatewayConfig,
-              smsUrl: requestSmsUrl,
-              smsMethod: currentSmsMethod
-            }
-            break
-          } catch (firstSmsError) {
-            const tlsRetryCodes = [
-              'ERR_TLS_CERT_ALTNAME_INVALID',
-              'DEPTH_ZERO_SELF_SIGNED_CERT',
-              'SELF_SIGNED_CERT_IN_CHAIN',
-              'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
-            ]
-            const retryableNetworkCodes = ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN', 'ENOTFOUND']
-            const gatewayCode = readErrorCode(firstSmsError)
-            const shouldRetryWithInsecureTls = tlsRetryCodes.includes(gatewayCode) || hasTlsCertError(firstSmsError)
-
-            if (shouldRetryWithInsecureTls) {
-              usedInsecureTlsRetry = true
-              logger.warn('TLS do gateway SMS inválido; retry mantendo URL original com rejectUnauthorized=false', {
-                tenant_id: tenant?._id || null,
-                login,
-                sms_url_original: gatewayConfig.smsUrl,
-                sms_url_retry: requestSmsUrl,
-                sms_method: currentSmsMethod,
-                gateway_code: gatewayCode,
-                gateway_message: readErrorMessage(firstSmsError)
-              })
+            for (const gatewayUrlCandidate of gatewayUrlCandidates) {
+              const isHttpsCandidate = /^https:\/\//i.test(String(gatewayUrlCandidate || ''))
 
               try {
+                logger.info('Enviando 2FA SMS para gateway', {
+                  tenant_id: tenant?._id || null,
+                  source: gatewaySource,
+                  sms_method: currentSmsMethod,
+                  sms_url: gatewayUrlCandidate
+                })
+
                 smsResponse = await sendSmsRequest({
                   ...gatewayConfig,
-                  smsUrl: requestSmsUrl,
+                  smsUrl: gatewayUrlCandidate,
                   smsMethod: currentSmsMethod
-                }, { allowInsecureTls: true })
+                })
 
                 activeSmsConfig = {
                   ...gatewayConfig,
-                  smsUrl: requestSmsUrl,
+                  smsUrl: gatewayUrlCandidate,
                   smsMethod: currentSmsMethod
                 }
                 break
-              } catch (retryError) {
-                if (/^https:\/\//i.test(String(requestSmsUrl || ''))) {
-                  try {
-                    logger.warn('Retry TLS inseguro falhou no 2FA; tentando gateway via HTTP', {
-                      tenant_id: tenant?._id || null,
-                      login,
-                      sms_url_https: requestSmsUrl,
-                      sms_url_http: String(requestSmsUrl || '').replace(/^https:\/\//i, 'http://'),
-                      sms_method: currentSmsMethod,
-                      gateway_code: readErrorCode(retryError),
-                      gateway_message: readErrorMessage(retryError)
-                    })
+              } catch (firstSmsError) {
+                const tlsRetryCodes = [
+                  'ERR_TLS_CERT_ALTNAME_INVALID',
+                  'DEPTH_ZERO_SELF_SIGNED_CERT',
+                  'SELF_SIGNED_CERT_IN_CHAIN',
+                  'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
+                ]
+                const gatewayCode = PasswordRecoveryController.readSmsGatewayErrorCode(firstSmsError)
+                const shouldRetryWithInsecureTls = tlsRetryCodes.includes(gatewayCode) || PasswordRecoveryController.hasTlsCertificateError(firstSmsError)
 
+                if (shouldRetryWithInsecureTls && isHttpsCandidate) {
+                  usedInsecureTlsRetry = true
+                  logger.warn('TLS do gateway SMS inválido; retry mantendo URL original com rejectUnauthorized=false', {
+                    tenant_id: tenant?._id || null,
+                    login,
+                    sms_url_original: gatewayConfig.smsUrl,
+                    sms_url_retry: gatewayUrlCandidate,
+                    sms_method: currentSmsMethod,
+                    gateway_code: gatewayCode,
+                    gateway_message: PasswordRecoveryController.readSmsGatewayErrorMessage(firstSmsError)
+                  })
+
+                  try {
                     smsResponse = await sendSmsRequest({
                       ...gatewayConfig,
-                      smsUrl: requestSmsUrl,
+                      smsUrl: gatewayUrlCandidate,
                       smsMethod: currentSmsMethod
-                    }, { forceHttp: true })
+                    }, { allowInsecureTls: true })
 
                     activeSmsConfig = {
                       ...gatewayConfig,
-                      smsUrl: String(requestSmsUrl || '').replace(/^https:\/\//i, 'http://'),
+                      smsUrl: gatewayUrlCandidate,
                       smsMethod: currentSmsMethod
                     }
                     break
-                  } catch (httpFallbackError) {
-                    retryError = httpFallbackError
+                  } catch (retryError) {
+                    if (/^https:\/\//i.test(String(gatewayUrlCandidate || ''))) {
+                      try {
+                        logger.warn('Retry TLS inseguro falhou no 2FA; tentando gateway via HTTP', {
+                          tenant_id: tenant?._id || null,
+                          login,
+                          sms_url_https: gatewayUrlCandidate,
+                          sms_url_http: String(gatewayUrlCandidate || '').replace(/^https:\/\//i, 'http://'),
+                          sms_method: currentSmsMethod,
+                          gateway_code: PasswordRecoveryController.readSmsGatewayErrorCode(retryError),
+                          gateway_message: PasswordRecoveryController.readSmsGatewayErrorMessage(retryError)
+                        })
+
+                        smsResponse = await sendSmsRequest({
+                          ...gatewayConfig,
+                          smsUrl: gatewayUrlCandidate,
+                          smsMethod: currentSmsMethod
+                        }, { forceHttp: true })
+
+                        activeSmsConfig = {
+                          ...gatewayConfig,
+                          smsUrl: String(gatewayUrlCandidate || '').replace(/^https:\/\//i, 'http://'),
+                          smsMethod: currentSmsMethod
+                        }
+                        break
+                      } catch (httpFallbackError) {
+                        retryError = httpFallbackError
+                      }
+                    }
+
+                    const retryCode = PasswordRecoveryController.readSmsGatewayErrorCode(retryError)
+                    const hasAnotherUrlCandidate = gatewayUrlCandidates[gatewayUrlCandidates.length - 1] !== gatewayUrlCandidate
+                    if (hasAnotherUrlCandidate && (PasswordRecoveryController.isRetryableSmsGatewayCode(retryCode) || PasswordRecoveryController.hasTlsCertificateError(retryError))) {
+                      logger.warn('Gateway SMS indisponível via domínio público no 2FA; tentando host privado', {
+                        tenant_id: tenant?._id || null,
+                        login,
+                        sms_url_current: gatewayUrlCandidate,
+                        sms_url_next: gatewayUrlCandidates[gatewayUrlCandidates.indexOf(gatewayUrlCandidate) + 1] || null,
+                        sms_method: currentSmsMethod,
+                        gateway_code: retryCode,
+                        gateway_message: PasswordRecoveryController.readSmsGatewayErrorMessage(retryError)
+                      })
+                      continue
+                    }
+
+                    throw retryError
                   }
                 }
 
-                const retryCode = readErrorCode(retryError)
-                if (retryableNetworkCodes.includes(retryCode) && gatewaySource !== 'integration' && smsConfigCandidates.length > 1) {
-                  logger.warn('Gateway SMS principal indisponível; tentando fallback local de integração', {
+                const hasAnotherUrlCandidate = gatewayUrlCandidates[gatewayUrlCandidates.length - 1] !== gatewayUrlCandidate
+                if (hasAnotherUrlCandidate && (PasswordRecoveryController.isRetryableSmsGatewayCode(gatewayCode) || PasswordRecoveryController.hasTlsCertificateError(firstSmsError))) {
+                  logger.warn('Gateway SMS indisponível via domínio público no 2FA; tentando host privado', {
                     tenant_id: tenant?._id || null,
                     login,
-                    sms_url: requestSmsUrl,
+                    sms_url_current: gatewayUrlCandidate,
+                    sms_url_next: gatewayUrlCandidates[gatewayUrlCandidates.indexOf(gatewayUrlCandidate) + 1] || null,
                     sms_method: currentSmsMethod,
-                    gateway_code: retryCode
+                    gateway_code: gatewayCode,
+                    gateway_message: PasswordRecoveryController.readSmsGatewayErrorMessage(firstSmsError)
                   })
                   continue
                 }
 
-                throw retryError
+                throw firstSmsError
               }
             }
 
-            if (retryableNetworkCodes.includes(gatewayCode) && gatewaySource !== 'integration' && smsConfigCandidates.length > 1) {
+            if (smsResponse) {
+              break
+            }
+          } catch (firstSmsError) {
+            const gatewayCode = PasswordRecoveryController.readSmsGatewayErrorCode(firstSmsError)
+            if (PasswordRecoveryController.isRetryableSmsGatewayCode(gatewayCode) && gatewaySource !== 'integration' && smsConfigCandidates.length > 1) {
               logger.warn('Gateway SMS principal indisponível; tentando fallback local de integração', {
                 tenant_id: tenant?._id || null,
                 login,
