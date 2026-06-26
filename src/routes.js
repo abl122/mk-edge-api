@@ -295,11 +295,12 @@ const listPublicProviders = async (req, res) => {
     const providers = tenants.map((tenant) => {
       const primaryColor = tenant?.provedor?.cores?.primaria;
 
+      // SEGURANÇA: apiKey (token do agente) NUNCA é retornado para o cliente.
+      // O app-cliente comunica-se exclusivamente via /client/* do backend.
       return {
         id: String(tenant._id),
         name: String(tenant?.provedor?.nome || 'Provedor'),
-        agentUrl: String(tenant?.agente?.url || ''),
-        apiKey: String(tenant?.agente?.token || ''),
+        agentUrl: String(tenant?.agente?.url || ''),   // mantido para derivar URL de logo/boleto
         logo: tenant?.provedor?.logo || null,
         primaryColor: primaryColor ? String(primaryColor) : 'verde',
         supportEmail: tenant?.provedor?.email ? String(tenant.provedor.email) : '',
@@ -389,6 +390,182 @@ routes.get('/agent/test', tenantMiddleware(), async (req, res) => {
     res.json({ ok: true, result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ==================== ROTAS DO APP-CLIENTE (proxy seguro) ====================
+// O app-cliente NUNCA chama o agente diretamente.
+// Todas as queries passam por estas rotas que:
+//   1. Exigem JWT de cliente válido (exceto /client/contracts)
+//   2. Obtêm as credenciais do agente do banco de dados (nunca exposto ao app)
+//   3. Encaminham a requisição ao agente via rede interna
+
+const jwt = require('jsonwebtoken');
+
+/**
+ * Autentica cliente no sis_cliente e retorna JWT (30 dias).
+ * POST /client/auth
+ * Body: { login, password, tenant_id }
+ * Retorna: { token, contracts[] }
+ */
+routes.post('/client/auth', tenantMiddleware(), async (req, res) => {
+  try {
+    const { login: loginInput, password, senha } = req.body;
+    const finalPassword = String(password || senha || '');
+    const identifier = String(loginInput || '').trim();
+
+    if (!identifier || !finalPassword) {
+      return res.status(400).json({ error: 'Login e senha são obrigatórios' });
+    }
+
+    const cleanDoc = identifier.replace(/\D/g, '');
+    const isDoc = /^\d+$/.test(cleanDoc) && (cleanDoc.length === 11 || cleanDoc.length === 14);
+
+    const sql = isDoc
+      ? `SELECT id, nome, cpf_cnpj, email, login, senha, plano, cli_ativado, bloqueado,
+                endereco_res, numero_res, bairro_res, cidade_res
+         FROM sis_cliente
+         WHERE REPLACE(REPLACE(REPLACE(REPLACE(cpf_cnpj,'.',''),'-',''),'/',''),' ','') = :doc
+           AND (bloqueado IS NULL OR bloqueado NOT IN ('s','sim','S','SIM'))
+         ORDER BY login ASC LIMIT 50`
+      : `SELECT id, nome, cpf_cnpj, email, login, senha, plano, cli_ativado, bloqueado,
+                endereco_res, numero_res, bairro_res, cidade_res
+         FROM sis_cliente
+         WHERE login = :doc
+           AND (bloqueado IS NULL OR bloqueado NOT IN ('s','sim','S','SIM'))
+         ORDER BY login ASC LIMIT 50`;
+
+    const result = await MkAuthAgentService.sendToAgent(req.tenant, sql, { doc: isDoc ? cleanDoc : identifier });
+
+    if (!result.success || !result.data || result.data.length === 0) {
+      return res.status(401).json({ error: 'Login/CPF/CNPJ ou senha inválidos' });
+    }
+
+    const rows = result.data;
+    const hasValidPassword = rows.some(row => String(row.senha ?? '') === finalPassword);
+    if (!hasValidPassword) {
+      return res.status(401).json({ error: 'Login/CPF/CNPJ ou senha inválidos' });
+    }
+
+    // Monta lista de contratos
+    const contracts = rows.map(row => {
+      const addrParts = [row.endereco_res, row.numero_res ? `nº${row.numero_res}` : null, row.bairro_res, row.cidade_res].filter(Boolean);
+      return {
+        id: String(row.id),
+        number: String(row.id),
+        login: String(row.login ?? ''),
+        address: addrParts.length > 0 ? addrParts.join(', ') : 'Endereço não informado',
+        planName: String(row.plano || 'Plano não informado'),
+        value: 0,
+        clientName: String(row.nome || 'Cliente'),
+        email: String(row.email || '-'),
+        cpf: String(row.cpf_cnpj || identifier),
+        active: String(row.cli_ativado || '').toLowerCase() !== 'n',
+      };
+    });
+
+    // Gera JWT de cliente (30 dias)
+    const token = jwt.sign(
+      { role: 'client', login: rows[0].login, tenant_id: req.tenant._id.toString() },
+      process.env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    return res.json({ token, contracts });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Lista contratos por CPF/CNPJ (pré-autenticação — sem JWT, apenas tenant_id).
+ * GET /client/contracts?document=XXX
+ * Retorna dados básicos (sem senha, sem financeiro).
+ */
+routes.get('/client/contracts', tenantMiddleware(), async (req, res) => {
+  try {
+    const document = String(req.query.document || '').replace(/\D/g, '');
+    if (!document || (document.length !== 11 && document.length !== 14)) {
+      return res.status(400).json({ error: 'CPF/CNPJ inválido' });
+    }
+
+    const sql = `SELECT id, nome, cpf_cnpj, email, login, plano, cli_ativado, bloqueado,
+                        endereco_res, numero_res, bairro_res, cidade_res
+                 FROM sis_cliente
+                 WHERE REPLACE(REPLACE(REPLACE(REPLACE(cpf_cnpj,'.',''),'-',''),'/',''),' ','') = :doc
+                    OR REPLACE(REPLACE(REPLACE(REPLACE(login,'.',''),'-',''),'/',''),' ','') = :doc
+                 ORDER BY id DESC LIMIT 50`;
+
+    const result = await MkAuthAgentService.sendToAgent(req.tenant, sql, { doc: document });
+
+    if (!result.success || !result.data || result.data.length === 0) {
+      return res.status(404).json({ error: 'Nenhum contrato encontrado para este CPF/CNPJ' });
+    }
+
+    const contracts = result.data
+      .filter(row => String(row.bloqueado || '').toLowerCase() !== 's')
+      .map(row => {
+        const addrParts = [row.endereco_res, row.numero_res ? `nº${row.numero_res}` : null, row.bairro_res, row.cidade_res].filter(Boolean);
+        return {
+          id: String(row.id),
+          number: String(row.id),
+          login: String(row.login ?? ''),
+          address: addrParts.length > 0 ? addrParts.join(', ') : 'Endereço não informado',
+          planName: String(row.plano || 'Plano não informado'),
+          value: 0,
+          clientName: String(row.nome || 'Cliente'),
+          email: String(row.email || '-'),
+          cpf: String(row.cpf_cnpj || document),
+          active: String(row.cli_ativado || '').toLowerCase() !== 'n',
+        };
+      });
+
+    return res.json({ contracts });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Proxy de queries para o agente — requer JWT de cliente.
+ * POST /client/agent/query
+ * Headers: Authorization: Bearer <client_jwt>
+ * Body: { sql, params, action? }
+ * Retorna: { success, data, count }
+ */
+routes.post('/client/agent/query', tenantMiddleware(), async (req, res) => {
+  try {
+    // Valida JWT de cliente
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token não fornecido' });
+    }
+    const token = authHeader.slice(7);
+    let payload;
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (e) {
+      return res.status(401).json({ error: 'Token inválido ou expirado' });
+    }
+    if (payload.role !== 'client') {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    const { sql, params, action } = req.body || {};
+
+    // Permite apenas execute_query e ping
+    if (action && action !== 'execute_query' && action !== 'ping') {
+      return res.status(400).json({ success: false, error: 'Ação não permitida' });
+    }
+
+    if (!sql || typeof sql !== 'string' || sql.trim() === '') {
+      return res.status(400).json({ success: false, error: 'SQL obrigatório' });
+    }
+
+    const result = await MkAuthAgentService.sendToAgent(req.tenant, sql.trim(), params || {});
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
