@@ -1294,6 +1294,52 @@ routes.get('/admin/dashboard/alerts', optionalTenantMiddleware(), authMiddleware
 routes.get('/admin/dashboard/health', optionalTenantMiddleware(), authMiddleware, (req, res) => DashboardController.getSystemHealth(req, res));
 
 /**
+ * Admin - Regenerar token do agente
+ * POST /admin/agent/regenerate-token
+ * Regenera o token HMAC do agente para sincronizar com a API
+ */
+routes.post('/admin/agent/regenerate-token', tenantMiddleware(), authMiddleware, async (req, res) => {
+  const { tenant } = req;
+  const crypto = require('crypto');
+  const logger = require('./logger');
+  const Tenant = require('./app/schemas/Tenant');
+  
+  try {
+    // Gera novo token
+    const newToken = crypto.randomBytes(32).toString('hex');
+    
+    // Atualiza no banco
+    await Tenant.findByIdAndUpdate(tenant._id, {
+      'agente.token': newToken
+    });
+    
+    logger.info('[Admin] Token do agente regenerado', {
+      tenant_id: tenant._id,
+      tenant_nome: tenant.provedor?.nome,
+      novo_token_preview: newToken.substring(0, 16) + '...'
+    });
+    
+    res.json({
+      sucesso: true,
+      mensagem: 'Token regenerado com sucesso',
+      token: newToken,
+      instrucoes: 'Copie este token e configure no agente PHP com: TOKEN_AGENTE="' + newToken + '"'
+    });
+    
+  } catch (error) {
+    logger.error('[Admin] Erro ao regenerar token', {
+      erro: error.message,
+      tenant_id: tenant?._id
+    });
+    
+    res.status(500).json({
+      erro: 'Erro ao regenerar token',
+      mensagem: error.message
+    });
+  }
+});
+
+/**
  * Buscar cliente
  * GET /client/:id
  */
