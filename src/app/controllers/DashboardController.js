@@ -95,7 +95,7 @@ class DashboardController {
         stack: error.stack
       });
       
-      return res.status(500).json({
+      return res.status(error.statusCode || 500).json({
         error: 'Erro ao carregar estatísticas',
         message: error.message
       });

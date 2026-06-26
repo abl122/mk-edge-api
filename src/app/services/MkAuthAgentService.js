@@ -1612,8 +1612,13 @@ class MkAuthAgentService {
           debug: response.data.debug,
           sqlPreview: sql.substring(0, 100)
         });
-        
-        throw new Error(agentError);
+
+        const err = new Error(agentError);
+        if (/muitas requisi/i.test(agentError) || response.status === 429) {
+          err.statusCode = 429;
+          err.isRateLimit = true;
+        }
+        throw err;
       }
       
       return response.data;
