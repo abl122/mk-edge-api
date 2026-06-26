@@ -199,7 +199,7 @@ class RequestController {
         stack: error.stack
       });
       
-      return res.status(error.statusCode || 500).json({
+      return res.status(500).json({
         error: 'Erro ao buscar chamados',
         message: error.message
       });
@@ -1090,7 +1090,7 @@ class RequestController {
         error: error.message
       });
       
-      return res.status(error.statusCode || 500).json({
+      return res.status(500).json({
         error: 'Erro ao listar chamados em atraso',
         message: error.message
       });

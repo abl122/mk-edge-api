@@ -1613,12 +1613,7 @@ class MkAuthAgentService {
           sqlPreview: sql.substring(0, 100)
         });
 
-        const err = new Error(agentError);
-        if (/muitas requisi/i.test(agentError) || response.status === 429) {
-          err.statusCode = 429;
-          err.isRateLimit = true;
-        }
-        throw err;
+        throw new Error(agentError);
       }
       
       return response.data;

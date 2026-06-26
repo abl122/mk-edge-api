@@ -127,7 +127,7 @@ class SearchController {
         term: req.query.term
       });
 
-      return res.status(error.statusCode || 500).json({
+      return res.status(500).json({
         error: 'Erro ao buscar clientes',
         message: error.message
       });
@@ -229,7 +229,7 @@ class SearchController {
         telefone: req.params.telefone
       });
 
-      return res.status(error.statusCode || 500).json({
+      return res.status(500).json({
         error: 'Erro ao buscar por telefone',
         message: error.message
       });
