@@ -1794,7 +1794,6 @@ class PasswordRecoveryController {
         const { status, data } = smsResponse
         let gatewayAccepted = false
         let gatewayMessage = ''
-        const requestSmsUrl = normalizeSmsUrl(activeSmsConfig.smsUrl, activeSmsConfig.canonicalHost)
         const smsMethodUsed = String(activeSmsConfig.smsMethod || smsMethod).trim().toUpperCase()
 
         if (status === 401) {

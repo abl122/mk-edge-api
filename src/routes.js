@@ -183,10 +183,10 @@ routes.post('/register', RegisterController.store);
 
 /**
  * Listar planos públicos (sem autenticação)
- * GET /api/public/plans
+ * GET /public/plans
  * Query params: dominio (opcional)
  */
-routes.get('/api/public/plans', async (req, res) => {
+routes.get('/public/plans', async (req, res) => {
   try {
     const Plan = require('./app/schemas/Plan');
     const Tenant = require('./app/schemas/Tenant');
@@ -325,12 +325,6 @@ const listPublicProviders = async (req, res) => {
 };
 
 routes.get('/public/providers', listPublicProviders);
-
-/**
- * Listar provedores públicos (com /api prefix)
- * GET /api/public/providers
- */
-routes.get('/api/public/providers', listPublicProviders);
 
 /**
  * Info da API
