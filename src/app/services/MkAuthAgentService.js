@@ -1613,7 +1613,10 @@ class MkAuthAgentService {
           sqlPreview: sql.substring(0, 100)
         });
 
-        throw new Error(agentError);
+        const error = new Error(agentError);
+        error.status = response.status;
+        error.responseData = response.data;
+        throw error;
       }
       
       return response.data;

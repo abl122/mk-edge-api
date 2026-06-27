@@ -284,7 +284,6 @@ const listPublicProviders = async (req, res) => {
     const tenants = await Tenant.find({
       'provedor.ativo': { $ne: false },
       'assinatura.ativa': true,
-      'agente.ativo': true,
       'agente.url': { $exists: true, $nin: [null, ''] },
       'agente.token': { $exists: true, $nin: [null, ''] }
     })
@@ -559,7 +558,17 @@ routes.post('/client/agent/query', tenantMiddleware(), async (req, res) => {
     const result = await MkAuthAgentService.sendToAgent(req.tenant, sql.trim(), params || {});
     return res.json(result);
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    const status = Number.isInteger(err?.status) ? err.status : 500;
+    const responseData = err?.responseData && typeof err.responseData === 'object'
+      ? err.responseData
+      : null;
+
+    return res.status(status).json({
+      success: false,
+      error: responseData?.error || err.message,
+      ...(responseData?.retry_after_seconds ? { retry_after_seconds: responseData.retry_after_seconds } : {}),
+      ...(responseData?.limit ? { limit: responseData.limit } : {}),
+    });
   }
 });
 
@@ -3028,6 +3037,24 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
   const clientIdOrLogin = req.params.client_id;
   const MkAuthAgentService = require('./app/services/MkAuthAgentService');
   const crypto = require('crypto');
+  const resolveInvoiceId = (invoice) => {
+    const candidates = [
+      invoice?.id,
+      invoice?.id_fat,
+      invoice?.titulo,
+      invoice?.invoice_id,
+      invoice?.idfat
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = String(candidate ?? '').trim();
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return '';
+  };
   
   try {
     // Validação: verifica se tenant está disponível
@@ -3067,17 +3094,20 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
     // ===== FATURAS PENDENTES (ABERTAS + VENCIDAS) =====
     const abertasQuery = MkAuthAgentService.queries.titulosAbertos(client.login);
     const abertasResult = await MkAuthAgentService.sendToAgent(req.tenant, abertasQuery.sql, abertasQuery.params);
-    const faturasPendentes = (abertasResult.data || []).filter(fat => fat.id);
+    const faturasPendentes = (Array.isArray(abertasResult?.data) ? abertasResult.data : [])
+      .map((fat) => ({ ...fat, __invoiceId: resolveInvoiceId(fat) }))
+      .filter((fat) => fat.__invoiceId);
     
     const pendingInvoices = [];
     
     for (const fatura of faturasPendentes) {
+      const invoiceId = fatura.__invoiceId;
       const titleDate = fatura.datavenc ? new Date(fatura.datavenc).toLocaleDateString('pt-BR') : null;
       const tenantUrl = resolveTenantBillingBaseUrl(req.tenant);
       
       // URL do boleto (formato antigo)
       const linkBoleto = tenantUrl
-        ? `${tenantUrl}/boleto/boleto.hhvm?titulo=${fatura.id}&contrato=${client.login}`
+        ? `${tenantUrl}/boleto/boleto.hhvm?titulo=${encodeURIComponent(invoiceId)}&contrato=${encodeURIComponent(client.login)}`
         : '';
       
       // Formata linha digitável (remove formatação)
@@ -3110,7 +3140,9 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
       pendingInvoices.push({
         title: titleDate,
         content: {
-          titulo: fatura.id,
+          id: invoiceId,
+          id_fat: invoiceId,
+          titulo: invoiceId,
           uuid_lanc: fatura.uuid_lanc,
           tipo: fatura.tipo || 'boleto',
           valor: String(fatura.valor || 0),
@@ -3131,9 +3163,12 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
     // ===== FATURAS PAGAS =====
     const pagasQuery = MkAuthAgentService.queries.titulosPagos(client.login);
     const pagasResult = await MkAuthAgentService.sendToAgent(req.tenant, pagasQuery.sql, pagasQuery.params);
-    const faturasPagas = (pagasResult.data || []).filter(fat => fat.id);
+    const faturasPagas = (Array.isArray(pagasResult?.data) ? pagasResult.data : [])
+      .map((fat) => ({ ...fat, __invoiceId: resolveInvoiceId(fat) }))
+      .filter((fat) => fat.__invoiceId);
     
     const paidInvoices = faturasPagas.map(fatura => {
+      const invoiceId = fatura.__invoiceId;
       const titleDate = fatura.datavenc ? new Date(fatura.datavenc).toLocaleDateString('pt-BR') : null;
       const paidDate = fatura.datapag ? new Date(fatura.datapag).toLocaleDateString('pt-BR') : null;
       const tenantUrl = resolveTenantBillingBaseUrl(req.tenant);
@@ -3161,7 +3196,9 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
       return {
         title: titleDate,
         content: {
-          titulo: fatura.id,
+          id: invoiceId,
+          id_fat: invoiceId,
+          titulo: invoiceId,
           uuid_lanc: fatura.uuid_lanc,
           tipo: fatura.tipo || 'boleto',
           valor: String(fatura.valor || 0),

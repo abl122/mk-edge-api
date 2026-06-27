@@ -30,7 +30,6 @@ async function testProvidersRoute() {
     const tenants = await Tenant.find({
       'provedor.ativo': { $ne: false },
       'assinatura.ativa': true,
-      'agente.ativo': true,
       'agente.url': { $exists: true, $nin: [null, ''] },
       'agente.token': { $exists: true, $nin: [null, ''] }
     })
