@@ -16,6 +16,7 @@ const SessionController = require('./app/controllers/SessionController');
 const InvoiceController = require('./app/controllers/InvoiceController');
 const SearchController = require('./app/controllers/SearchController');
 const CTOController = require('./app/controllers/CTOController');
+const TrackingController = require('./app/controllers/TrackingController');
 const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 const AuthController = require('./app/controllers/AuthController');
 const InstallerController = require('./app/controllers/InstallerController');
@@ -153,6 +154,33 @@ const formatCurrencyBrl = (value) => {
     style: 'currency',
     currency: 'BRL',
   }).format(safeValue);
+};
+
+const allowTrackingRead = (req, res, next) => {
+  const authHeader = String(req.headers.authorization || '').trim();
+
+  if (authHeader) {
+    return authMiddleware(req, res, next);
+  }
+
+  const providedAgentToken = String(req.headers['x-agent-token'] || req.query.agent_token || '').trim();
+  const tenantAgentToken = String(req.tenant?.agente?.token || '').trim();
+
+  if (!providedAgentToken) {
+    return res.status(401).json({
+      error: 'Autenticação obrigatória',
+      message: 'Use Authorization ou x-agent-token para consultar rastreio'
+    });
+  }
+
+  if (!tenantAgentToken || providedAgentToken !== tenantAgentToken) {
+    return res.status(401).json({
+      error: 'Token do agente inválido',
+      message: 'Não foi possível autenticar a leitura de rastreio'
+    });
+  }
+
+  return next();
 };
 
 // ==================== ROTAS PÚBLICAS ====================
@@ -580,6 +608,26 @@ routes.post('/client/agent/query', tenantMiddleware(), async (req, res) => {
  * Body: { login, senha }
  */
 routes.post('/sessions', tenantMiddleware(), SessionController.store);
+
+// ==================== RASTREAMENTO DE TÉCNICOS ====================
+
+/**
+ * Atualiza localização do técnico (app mobile)
+ * POST /tracking/location
+ */
+routes.post('/tracking/location', tenantMiddleware(), authMiddleware, TrackingController.updateLocation);
+
+/**
+ * Lista técnicos com rastreio recente
+ * GET /tracking/technicians?minutes=120&limit=50
+ */
+routes.get('/tracking/technicians', tenantMiddleware(), allowTrackingRead, TrackingController.listTechnicians);
+
+/**
+ * Busca trilha de um técnico
+ * GET /tracking/technicians/:login?minutes=180&point_limit=300
+ */
+routes.get('/tracking/technicians/:login', tenantMiddleware(), allowTrackingRead, TrackingController.showTechnician);
 
 // ==================== ROTAS DE AUTENTICAÇÃO ====================
 
