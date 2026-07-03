@@ -183,6 +183,51 @@ const allowTrackingRead = (req, res, next) => {
   return next();
 };
 
+const resolveTrackingTenant = async (req, res, next) => {
+  try {
+    const hasExplicitTenant = !!(
+      req.query?.tenant_id ||
+      req.body?.tenant_id ||
+      req.headers['x-tenant-id']
+    );
+
+    if (hasExplicitTenant) {
+      return tenantMiddleware()(req, res, next);
+    }
+
+    const providedAgentToken = String(req.headers['x-agent-token'] || req.query.agent_token || '').trim();
+    if (!providedAgentToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'tenant_id requerido',
+        message: 'Forneça tenant_id ou x-agent-token para resolver o tenant'
+      });
+    }
+
+    const Tenant = require('./app/schemas/Tenant');
+    const tenant = await Tenant.findOne({
+      'agente.token': providedAgentToken,
+    });
+
+    if (!tenant) {
+      return res.status(404).json({
+        success: false,
+        error: 'Tenant não encontrado para o token informado'
+      });
+    }
+
+    req.tenant = tenant;
+    req.tenant_id = String(tenant._id);
+    return next();
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Erro ao resolver tenant para rastreamento',
+      message: error.message
+    });
+  }
+};
+
 // ==================== ROTAS PÚBLICAS ====================
 
 // ==================== ROTAS PÚBLICAS (SEM TENANT_ID) ====================
@@ -615,7 +660,7 @@ routes.post('/sessions', tenantMiddleware(), SessionController.store);
  * Atualiza localização do técnico (app mobile)
  * POST /tracking/location
  */
-routes.post('/tracking/location', tenantMiddleware(), authMiddleware, TrackingController.updateLocation);
+routes.post('/tracking/location', resolveTrackingTenant, authMiddleware, TrackingController.updateLocation);
 
 /**
  * Resolve tenant_id via token do agente
@@ -635,7 +680,6 @@ routes.get('/tracking/resolve-tenant', async (req, res) => {
 
     const Tenant = require('./app/schemas/Tenant');
     const tenant = await Tenant.findOne({
-      'agente.ativo': true,
       'agente.token': providedAgentToken,
     })
       .select('_id provedor.nome')
@@ -666,13 +710,13 @@ routes.get('/tracking/resolve-tenant', async (req, res) => {
  * Lista técnicos com rastreio recente
  * GET /tracking/technicians?minutes=120&limit=50
  */
-routes.get('/tracking/technicians', tenantMiddleware(), allowTrackingRead, TrackingController.listTechnicians);
+routes.get('/tracking/technicians', resolveTrackingTenant, allowTrackingRead, TrackingController.listTechnicians);
 
 /**
  * Busca trilha de um técnico
  * GET /tracking/technicians/:login?minutes=180&point_limit=300
  */
-routes.get('/tracking/technicians/:login', tenantMiddleware(), allowTrackingRead, TrackingController.showTechnician);
+routes.get('/tracking/technicians/:login', resolveTrackingTenant, allowTrackingRead, TrackingController.showTechnician);
 
 // ==================== ROTAS DE AUTENTICAÇÃO ====================
 
