@@ -14,6 +14,25 @@ function toDate(value) {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
+function parseDateRange(dateStr) {
+  if (!dateStr) {
+    return null;
+  }
+
+  const raw = String(dateStr).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return null;
+  }
+
+  const start = new Date(`${raw}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime())) {
+    return null;
+  }
+
+  const end = new Date(start.getTime() + (24 * 60 * 60 * 1000));
+  return { start, end, raw };
+}
+
 function toLimit(value, fallback, max) {
   const parsed = Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -109,11 +128,15 @@ class TrackingController {
     try {
       const minutes = toLimit(req.query?.minutes, 120, 24 * 60);
       const limit = toLimit(req.query?.limit, 50, 500);
+      const dateRange = parseDateRange(req.query?.date);
       const since = new Date(Date.now() - minutes * 60 * 1000);
+      const seenFilter = dateRange
+        ? { $gte: dateRange.start, $lt: dateRange.end }
+        : { $gte: since };
 
       const rows = await TechnicianTracking.find({
         tenant_id: req.tenant_id,
-        last_seen_at: { $gte: since },
+        last_seen_at: seenFilter,
       })
         .sort({ last_seen_at: -1 })
         .limit(limit)
@@ -129,6 +152,7 @@ class TrackingController {
 
       return res.json({
         success: true,
+        date: dateRange ? dateRange.raw : null,
         minutes,
         count: technicians.length,
         technicians,
@@ -150,6 +174,7 @@ class TrackingController {
       const technicianLogin = decodeURIComponent(String(req.params.login || '')).trim();
       const minutes = toLimit(req.query?.minutes, 180, 24 * 60);
       const pointLimit = toLimit(req.query?.point_limit || req.query?.limit, 300, 1000);
+      const dateRange = parseDateRange(req.query?.date);
       const since = new Date(Date.now() - minutes * 60 * 1000);
 
       if (!technicianLogin) {
@@ -176,6 +201,9 @@ class TrackingController {
           const recordedAt = point?.recorded_at ? new Date(point.recorded_at) : null;
           if (!recordedAt || Number.isNaN(recordedAt.getTime())) {
             return false;
+          }
+          if (dateRange) {
+            return recordedAt >= dateRange.start && recordedAt < dateRange.end;
           }
           return recordedAt >= since;
         })
