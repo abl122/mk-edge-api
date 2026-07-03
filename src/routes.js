@@ -303,12 +303,20 @@ routes.get('/public/plans', async (req, res) => {
  * GET /public/tracking/technicians?tenant_id=...&minutes=120&limit=50
  * GET /public/tracking/technicians/:login?tenant_id=...&minutes=180&point_limit=300
  */
-routes.get('/public/tracking/technicians', tenantMiddleware({ validateActive: false }), (req, res) => {
-  return TrackingController.listTechnicians(req, res);
+routes.get('/public/tracking/technicians', (req, res) => {
+  return res.status(403).json({
+    success: false,
+    error: 'Rota pública desativada',
+    message: 'Use /api/tracking/technicians com autenticação'
+  });
 });
 
-routes.get('/public/tracking/technicians/:login', tenantMiddleware({ validateActive: false }), (req, res) => {
-  return TrackingController.showTechnician(req, res);
+routes.get('/public/tracking/technicians/:login', (req, res) => {
+  return res.status(403).json({
+    success: false,
+    error: 'Rota pública desativada',
+    message: 'Use /api/tracking/technicians/:login com autenticação'
+  });
 });
 
 /**
