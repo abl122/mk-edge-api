@@ -618,6 +618,51 @@ routes.post('/sessions', tenantMiddleware(), SessionController.store);
 routes.post('/tracking/location', tenantMiddleware(), authMiddleware, TrackingController.updateLocation);
 
 /**
+ * Resolve tenant_id via token do agente
+ * GET /tracking/resolve-tenant
+ * Header: x-agent-token
+ */
+routes.get('/tracking/resolve-tenant', async (req, res) => {
+  try {
+    const providedAgentToken = String(req.headers['x-agent-token'] || req.query.agent_token || '').trim();
+
+    if (!providedAgentToken) {
+      return res.status(401).json({
+        success: false,
+        error: 'Token do agente não fornecido'
+      });
+    }
+
+    const Tenant = require('./app/schemas/Tenant');
+    const tenant = await Tenant.findOne({
+      'agente.ativo': true,
+      'agente.token': providedAgentToken,
+    })
+      .select('_id provedor.nome')
+      .lean();
+
+    if (!tenant) {
+      return res.status(404).json({
+        success: false,
+        error: 'Tenant não encontrado para o token informado'
+      });
+    }
+
+    return res.json({
+      success: true,
+      tenant_id: String(tenant._id),
+      tenant_nome: tenant?.provedor?.nome || ''
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Erro ao resolver tenant do agente',
+      message: error.message
+    });
+  }
+});
+
+/**
  * Lista técnicos com rastreio recente
  * GET /tracking/technicians?minutes=120&limit=50
  */
