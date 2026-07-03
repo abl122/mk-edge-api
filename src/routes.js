@@ -299,6 +299,19 @@ routes.get('/public/plans', async (req, res) => {
 });
 
 /**
+ * Rastreio público por tenant
+ * GET /public/tracking/technicians?tenant_id=...&minutes=120&limit=50
+ * GET /public/tracking/technicians/:login?tenant_id=...&minutes=180&point_limit=300
+ */
+routes.get('/public/tracking/technicians', tenantMiddleware({ validateActive: false }), (req, res) => {
+  return TrackingController.listTechnicians(req, res);
+});
+
+routes.get('/public/tracking/technicians/:login', tenantMiddleware({ validateActive: false }), (req, res) => {
+  return TrackingController.showTechnician(req, res);
+});
+
+/**
  * Listar planos públicos (SEM /api prefix - para publicFetch)
  * GET /public/plans
  * Query params: dominio (opcional)
