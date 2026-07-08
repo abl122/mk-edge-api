@@ -63,17 +63,24 @@ app.use(helmet({
 // CORS configurado para aceitar frontend
 const allowedOrigins = [
   'https://mk-edge.com.br',
+  'https://www.mk-edge.com.br',
   'http://mk-edge.com.br',
   'http://localhost:5173',
   'http://localhost:8080'
 ];
+
+const MK_EDGE_ORIGIN_REGEX = /^https:\/\/([a-z0-9-]+\.)*mk-edge\.com\.br$/i;
+
+function isAllowedCorsOrigin(origin) {
+  return allowedOrigins.includes(origin) || MK_EDGE_ORIGIN_REGEX.test(origin);
+}
 
 app.use(cors({
   origin: function (origin, callback) {
     // Permitir requests sem origin (mobile apps, curl, etc)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (isAllowedCorsOrigin(origin)) {
       callback(null, true);
     } else {
       console.log('❌ CORS bloqueado para origem:', origin);
