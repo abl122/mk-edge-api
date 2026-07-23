@@ -2336,7 +2336,6 @@ routes.get('/invoices/receipt-html/:encoded_url', tenantMiddleware(), authMiddle
  */
 routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, async (req, res) => {
   const uuidLanc = String(req.params.uuid_lanc || '').trim();
-  const invoiceId = String(req.query.invoice_id || '').trim();
 
   if (!uuidLanc) {
     return res.status(400).json({ error: 'UUID da fatura é obrigatório' });
@@ -2346,9 +2345,6 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
     const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 
     // 1. Buscar dados da NFCom e do tomador
-    const nfcomLookupValues = Array.from(new Set([uuidLanc, invoiceId].filter(Boolean)));
-    const nfcomPlaceholders = nfcomLookupValues.map(() => '?').join(', ');
-
     let nfcomResult;
     try {
       nfcomResult = await MkAuthAgentService.sendToAgent(
@@ -2395,14 +2391,13 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
         FROM sis_nfcom n
         LEFT JOIN sis_lanc l
                ON l.uuid_lanc = n.titulo
-               OR CAST(l.id AS CHAR) = n.titulo
         LEFT JOIN sis_cliente c
                ON c.login = l.login
         CROSS JOIN sis_provedor p
-        WHERE n.titulo IN (${nfcomPlaceholders})
+        WHERE n.titulo = ?
         LIMIT 1
       `,
-        nfcomLookupValues
+        [uuidLanc]
       );
     } catch (error) {
       if (isNfcomUnavailableError(error)) {
@@ -2518,7 +2513,6 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
  */
 routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (req, res) => {
   const uuidLanc = String(req.params.uuid_lanc || '').trim();
-  const invoiceId = String(req.query.invoice_id || '').trim();
 
   if (!uuidLanc) {
     return res.status(400).json({ error: 'UUID da fatura é obrigatório' });
@@ -2528,9 +2522,6 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
     const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 
     // Buscar dados da NFCom, provedor e tomador
-    const nfcomLookupValues = Array.from(new Set([uuidLanc, invoiceId].filter(Boolean)));
-    const nfcomPlaceholders = nfcomLookupValues.map(() => '?').join(', ');
-
     let nfcomResult;
     try {
       nfcomResult = await MkAuthAgentService.sendToAgent(
@@ -2577,14 +2568,13 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         FROM sis_nfcom n
         LEFT JOIN sis_lanc l
                ON l.uuid_lanc = n.titulo
-               OR CAST(l.id AS CHAR) = n.titulo
         LEFT JOIN sis_cliente c
                ON c.login = l.login
         CROSS JOIN sis_provedor p
-        WHERE n.titulo IN (${nfcomPlaceholders})
+        WHERE n.titulo = ?
         LIMIT 1
       `,
-        nfcomLookupValues
+        [uuidLanc]
       );
     } catch (error) {
       if (isNfcomUnavailableError(error)) {
@@ -3381,17 +3371,13 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
       .filter((fat) => fat.__invoiceId);
     
     const nfcomByTitulo = new Set();
-    const nfcomLookupValues = Array.from(new Set(
-      faturasPagas.flatMap((fatura) => {
-        const uuidLanc = String(fatura.uuid_lanc || '').trim();
-        const invoiceId = String(fatura.__invoiceId || '').trim();
-        return [uuidLanc, invoiceId].filter(Boolean);
-      })
-    ));
+    const uuidLancList = faturasPagas
+      .map((fatura) => String(fatura.uuid_lanc || '').trim())
+      .filter(Boolean);
 
-    if (nfcomLookupValues.length > 0) {
+    if (uuidLancList.length > 0) {
       try {
-        const placeholders = nfcomLookupValues.map(() => '?').join(', ');
+        const placeholders = uuidLancList.map(() => '?').join(', ');
         const nfcomResult = await MkAuthAgentService.sendToAgent(
           req.tenant,
           `
@@ -3399,7 +3385,7 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
             FROM sis_nfcom
             WHERE titulo IN (${placeholders})
           `,
-          nfcomLookupValues
+          uuidLancList
         );
 
         (Array.isArray(nfcomResult?.data) ? nfcomResult.data : []).forEach((row) => {
@@ -3421,10 +3407,6 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
       const paidDate = fatura.datapag ? new Date(fatura.datapag).toLocaleDateString('pt-BR') : null;
       const tenantUrl = resolveTenantBillingBaseUrl(req.tenant);
       const uuidLanc = String(fatura.uuid_lanc || '').trim();
-      const hasNfcom = Boolean(
-        (uuidLanc && nfcomByTitulo.has(uuidLanc)) ||
-        (invoiceId && nfcomByTitulo.has(invoiceId))
-      );
       const collectorRaw = String(fatura.coletor || '').trim();
       const collectorUrl =
         collectorRaw.startsWith('http://') || collectorRaw.startsWith('https://')
@@ -3457,7 +3439,7 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
           status: fatura.status || 'pago',
           descricao: fatura.obs || `Fatura ${titleDate}`,
           paidAt: paidDate,
-          hasNfcom,
+          hasNfcom: Boolean(uuidLanc && nfcomByTitulo.has(uuidLanc)),
           coletor: collectorRaw || null,
           receipt_url: directReceiptUrl || receiptByContratoUrl || receiptBoletoUrl || fallbackReceiptUrl || '',
           nota_fiscal_url: noteFiscalUrl || ''
