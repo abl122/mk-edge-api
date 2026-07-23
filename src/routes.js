@@ -2598,18 +2598,18 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
 
     const formatarCPFCNPJ = (cpf_cnpj) => {
       if (!cpf_cnpj) return 'Não informado';
-      const clean = String(cpf_cnpj).replace(/\D/g, '');
+      const clean = cpf_cnpj.replace(/\D/g, '');
       if (clean.length === 11) {
         return clean.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
       } else if (clean.length === 14) {
         return clean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
       }
-      return String(cpf_cnpj);
+      return cpf_cnpj;
     };
 
     const formatarCEP = (cep) => {
       if (!cep) return '-';
-      const clean = String(cep).replace(/\D/g, '');
+      const clean = cep.replace(/\D/g, '');
       return clean.replace(/^(\d{5})(\d{3})$/, '$1-$2');
     };
 
@@ -2641,18 +2641,10 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
       return inicioFmt && fimFmt ? `${inicioFmt} a ${fimFmt}` : String(value);
     };
 
-    const formatarValor = (value) => {
-      const parsed = Number.parseFloat(String(value ?? 0).replace(',', '.'));
-      const safe = Number.isFinite(parsed) ? parsed : 0;
-      return safe.toLocaleString('pt-BR', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      });
-    };
-
-    const itensNormalizados = Array.isArray(itens)
-      ? itens.filter((item) => item && typeof item === 'object')
-      : [];
+    const formatarValor = (value) => parseFloat(value || 0).toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
 
     const dataEmissao = formatarDataHora(nfcomRow.emissao || new Date());
     const dataAutorizacao = formatarDataHora(opcoes?.dhRecbto || nfcomRow.emissao);
@@ -3109,7 +3101,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
                         </tr>
                     </thead>
                     <tbody>
-                        ${itensNormalizados.length > 0 ? itensNormalizados.map(item => `
+                        ${itens.length > 0 ? itens.map(item => `
                         <tr>
                             <td>${escapeHtml(item.descricao || 'Serviço')}</td>
                             <td class="text-center">${escapeHtml(String(item.quantidade || 1))}</td>
@@ -3188,12 +3180,7 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (error) {
-    console.error('[NFCOM][HTML]', {
-      message: error?.message,
-      stack: error?.stack,
-      uuid_lanc: req.params?.uuid_lanc,
-      tenant_id: req.tenant?._id ? String(req.tenant._id) : null,
-    });
+    console.error('[NFCOM][HTML]', error.message);
     res.status(500).send('<h1>Erro ao gerar DANFE-COM</h1>');
   }
 });
