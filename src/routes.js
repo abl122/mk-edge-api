@@ -147,154 +147,6 @@ const pickFirstText = (...values) => {
   return '';
 };
 
-const isNfcomUnavailableError = (error) => {
-  const message = String(error?.message || '').toLowerCase();
-  if (!message) {
-    return false;
-  }
-
-  return message.includes('sis_nfcom') && (
-    message.includes('no such table') ||
-    message.includes('doesn\'t exist') ||
-    message.includes('does not exist') ||
-    message.includes('unknown table') ||
-    message.includes('unknown column') ||
-    message.includes('base table')
-  );
-};
-
-const fetchFirstAgentRow = async (tenant, sql, params = []) => {
-  const result = await MkAuthAgentService.sendToAgent(tenant, sql, params);
-  return Array.isArray(result?.data) && result.data.length > 0 ? result.data[0] : null;
-};
-
-const loadNfcomContext = async (tenant, uuidLanc, invoiceId = '') => {
-  const nfcomLookupValues = Array.from(new Set([uuidLanc, invoiceId].map((value) => String(value || '').trim()).filter(Boolean)));
-  if (nfcomLookupValues.length === 0) {
-    return null;
-  }
-
-  const nfcomPlaceholders = nfcomLookupValues.map(() => '?').join(', ');
-  const nfcomRow = await fetchFirstAgentRow(
-    tenant,
-    `
-      SELECT
-        uuid_nfcom,
-        idmka,
-        titulo,
-        numero,
-        serie,
-        emissao,
-        status,
-        chave,
-        protocolo,
-        opcoes,
-        itens,
-        obs
-      FROM sis_nfcom
-      WHERE titulo IN (${nfcomPlaceholders})
-      LIMIT 1
-    `,
-    nfcomLookupValues
-  );
-
-  if (!nfcomRow) {
-    return null;
-  }
-
-  const tituloNfcom = String(nfcomRow.titulo || '').trim();
-  const lancLookupValues = Array.from(new Set([uuidLanc, invoiceId, tituloNfcom].map((value) => String(value || '').trim()).filter(Boolean)));
-
-  let lancRow = null;
-  if (lancLookupValues.length > 0) {
-    const lancPlaceholders = lancLookupValues.map(() => '?').join(', ');
-    try {
-      lancRow = await fetchFirstAgentRow(
-        tenant,
-        `
-          SELECT id, uuid_lanc, login, referencia
-          FROM sis_lanc
-          WHERE uuid_lanc IN (${lancPlaceholders})
-             OR CAST(id AS CHAR) IN (${lancPlaceholders})
-          LIMIT 1
-        `,
-        [...lancLookupValues, ...lancLookupValues]
-      );
-    } catch {
-      lancRow = null;
-    }
-  }
-
-  const clientLogin = pickFirstText(lancRow?.login);
-
-  let clientRow = null;
-  if (clientLogin) {
-    try {
-      clientRow = await fetchFirstAgentRow(
-        tenant,
-        `
-          SELECT
-            nome,
-            cpf_cnpj,
-            email,
-            fone,
-            celular,
-            endereco_res,
-            numero_res,
-            complemento_res,
-            bairro_res,
-            cidade_res,
-            cep_res
-          FROM sis_cliente
-          WHERE login = ?
-          LIMIT 1
-        `,
-        [clientLogin]
-      );
-    } catch {
-      clientRow = null;
-    }
-  }
-
-  let providerRow = null;
-  try {
-    providerRow = await fetchFirstAgentRow(tenant, 'SELECT * FROM sis_provedor LIMIT 1', []);
-  } catch {
-    providerRow = null;
-  }
-
-  return {
-    ...nfcomRow,
-    referencia: String(lancRow?.referencia || ''),
-    cliente_login: clientLogin,
-    cliente_nome: String(clientRow?.nome || ''),
-    cliente_cpf_cnpj: String(clientRow?.cpf_cnpj || ''),
-    cliente_email: String(clientRow?.email || ''),
-    cliente_fone: String(clientRow?.fone || ''),
-    cliente_celular: String(clientRow?.celular || ''),
-    cliente_endereco: String(clientRow?.endereco_res || ''),
-    cliente_numero: String(clientRow?.numero_res || ''),
-    cliente_complemento: String(clientRow?.complemento_res || ''),
-    cliente_bairro: String(clientRow?.bairro_res || ''),
-    cliente_cidade: String(clientRow?.cidade_res || ''),
-    cliente_estado: String(pickFirstText(clientRow?.estado_res, clientRow?.uf_res, clientRow?.estado, clientRow?.uf) || ''),
-    cliente_cep: String(clientRow?.cep_res || ''),
-    provedor_nome: String(providerRow?.nome || tenant?.provedor?.nome || ''),
-    provedor_razao: String(providerRow?.razao || tenant?.provedor?.razao_social || tenant?.provedor?.nome || ''),
-    provedor_cnpj: String(providerRow?.cnpj || tenant?.provedor?.cnpj || ''),
-    provedor_ie: String(providerRow?.ie || tenant?.provedor?.ie || tenant?.provedor?.inscricao_estadual || ''),
-    provedor_im: String(providerRow?.im || tenant?.provedor?.im || tenant?.provedor?.inscricao_municipal || ''),
-    provedor_endereco: String(providerRow?.endereco || tenant?.provedor?.endereco || ''),
-    provedor_numero: String(providerRow?.numero || tenant?.provedor?.numero || ''),
-    provedor_bairro: String(providerRow?.bairro || tenant?.provedor?.bairro || ''),
-    provedor_cidade: String(providerRow?.cidade || tenant?.provedor?.cidade || ''),
-    provedor_estado: String(providerRow?.estado || tenant?.provedor?.estado || tenant?.provedor?.uf || ''),
-    provedor_cep: String(providerRow?.cep || tenant?.provedor?.cep || ''),
-    provedor_fone: String(providerRow?.fone || tenant?.provedor?.telefone || ''),
-    provedor_site: String(providerRow?.site || tenant?.provedor?.website || tenant?.provedor?.site || ''),
-  };
-};
-
 const formatCurrencyBrl = (value) => {
   const numeric = Number.parseFloat(String(value ?? 0).replace(',', '.'));
   const safeValue = Number.isFinite(numeric) ? numeric : 0;
@@ -392,845 +244,877 @@ routes.get('/health', (req, res) => {
     message: 'Servidor funcionando! Configure os controllers para habilitar as rotas completas'
   });
 });
-
 /**
- * Registrar novo tenant + admin user
- * POST /register
- * Público (sem autenticação)
- * Body: { nome, cnpj, email, telefone, admin_nome, admin_email, admin_telefone, senha, plan_slug, razao_social?, dominio? }
- * Response: { success, user_id, tenant_id, subscription_id }
+ * Buscar dados da NFCom para visualização DANFE-COM
+ * GET /nfcom/by-uuid/:uuid_lanc
+ * Retorna dados completos da NFCom (nfcom + provedor + cliente + itens + opcoes)
  */
-routes.post('/register', RegisterController.store);
+routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, async (req, res) => {
+  const uuidLanc = String(req.params.uuid_lanc || '').trim();
 
-/**
- * Listar planos públicos (sem autenticação)
- * GET /public/plans
- * Query params: dominio (opcional)
- */
-routes.get('/public/plans', async (req, res) => {
-  try {
-    const Plan = require('./app/schemas/Plan');
-    const Tenant = require('./app/schemas/Tenant');
-    const { dominio } = req.query;
-
-    let query = { ativo: true };
-    
-    // Se domínio foi fornecido, buscar o tenant e seus planos
-    if (dominio) {
-      const tenant = await Tenant.findOne({ 'provedor.dominio': dominio }).lean();
-      if (!tenant) {
-        return res.status(404).json({
-          success: false,
-          message: 'Domínio não encontrado'
-        });
-      }
-      query.tenant_id = tenant._id;
-    }
-
-    const plans = await Plan.find(query)
-      .select('_id nome descricao valor_mensal recursos ativo ordem')
-      .sort({ ordem: 1 })
-      .lean();
-
-    return res.json({
-      success: true,
-      plans,
-      total: plans.length
-    });
-  } catch (error) {
-    console.error('Erro ao listar planos públicos:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Erro ao listar planos'
-    });
+  if (!uuidLanc) {
+  return res.status(400).json({ error: 'UUID da fatura é obrigatório' });
   }
-});
 
-/**
- * Rastreio público por tenant
- * GET /public/tracking/technicians?tenant_id=...&minutes=120&limit=50
- * GET /public/tracking/technicians/:login?tenant_id=...&minutes=180&point_limit=300
- */
-routes.get('/public/tracking/technicians', (req, res) => {
-  return res.status(403).json({
-    success: false,
-    error: 'Rota pública desativada',
-    message: 'Use /api/tracking/technicians com autenticação'
-  });
-});
-
-routes.get('/public/tracking/technicians/:login', (req, res) => {
-  return res.status(403).json({
-    success: false,
-    error: 'Rota pública desativada',
-    message: 'Use /api/tracking/technicians/:login com autenticação'
-  });
-});
-
-/**
- * Listar planos públicos (SEM /api prefix - para publicFetch)
- * GET /public/plans
- * Query params: dominio (opcional)
- * Se dominio for fornecido e existir, retorna planos desse tenant
- * Se dominio não existir ou não for fornecido, retorna TODOS os planos ativos
- */
-routes.get('/public/plans', async (req, res) => {
   try {
-    const Plan = require('./app/schemas/Plan');
-    const Tenant = require('./app/schemas/Tenant');
-    const { dominio } = req.query;
+  const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 
-    let query = { ativo: true };
-    
-    // Se domínio foi fornecido, tentar buscar o tenant
-    if (dominio) {
-      const tenant = await Tenant.findOne({ 'provedor.dominio': dominio }).lean();
-      
-      if (tenant) {
-        query.tenant_id = tenant._id;
-      }
-      // Se tenant não encontrado, retorna todos os planos ativos (sem filtro de tenant_id)
-    }
+  // 1. Buscar dados da NFCom e do tomador
+  const nfcomResult = await MkAuthAgentService.sendToAgent(
+    req.tenant,
+    `
+    SELECT
+      n.uuid_nfcom,
+      n.idmka,
+      n.titulo,
+      n.numero,
+      n.serie,
+      n.emissao,
+      n.status,
+      n.chave,
+      n.protocolo,
+      n.opcoes,
+      n.itens,
+      n.obs,
+      l.login AS cliente_login,
+      c.nome AS cliente_nome,
+      c.cpf_cnpj AS cliente_cpf_cnpj,
+      c.email AS cliente_email,
+      c.fone AS cliente_fone,
+      c.celular AS cliente_celular,
+      c.endereco_res AS cliente_endereco,
+      c.numero_res AS cliente_numero,
+      c.complemento_res AS cliente_complemento,
+      c.bairro_res AS cliente_bairro,
+      c.cidade_res AS cliente_cidade,
+      c.cep_res AS cliente_cep,
+      p.nome AS provedor_nome,
+      p.razao AS provedor_razao,
+      p.cnpj AS provedor_cnpj,
+      p.ie AS provedor_ie,
+      p.im AS provedor_im,
+      p.endereco AS provedor_endereco,
+      p.numero AS provedor_numero,
+      p.bairro AS provedor_bairro,
+      p.cidade AS provedor_cidade,
+      p.estado AS provedor_estado,
+      p.cep AS provedor_cep,
+      p.fone AS provedor_fone,
+      p.site AS provedor_site
+    FROM sis_nfcom n
+    LEFT JOIN sis_lanc l
+         ON l.uuid_lanc = n.titulo
+    LEFT JOIN sis_cliente c
+         ON c.login = l.login
+    CROSS JOIN sis_provedor p
+    WHERE n.titulo = ?
+    LIMIT 1
+    `,
+    [uuidLanc]
+  );
 
-    const plans = await Plan.find(query)
-      .select('_id nome slug descricao valor_mensal periodo recursos destaque cor dias_trial limite_clientes recorrente ativo ordem')
-      .sort({ destaque: -1, ordem: 1 })
-      .lean();
-
-    return res.json({
-      success: true,
-      plans,
-      total: plans.length,
-      tenant_name: 'MK-Edge',
-      tenant_color_primary: '#667eea',
-      tenant_color_secondary: '#764ba2'
-    });
-  } catch (error) {
-    console.error('❌ Erro ao listar planos públicos:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Erro ao listar planos'
-    });
+  const nfcomRow = nfcomResult?.data?.[0];
+  if (!nfcomRow) {
+    return res.status(404).json({ error: 'NFCom não encontrada para esta fatura' });
   }
-});
 
-/**
- * Listar provedores públicos (SEM /api prefix - para app cliente)
- * GET /public/providers
- * Retorna formato compatível com providers.config.json: { providers: [...] }
- */
-const listPublicProviders = async (req, res) => {
-  try {
-    const Tenant = require('./app/schemas/Tenant');
+  // 2. Parsear opcoes e itens (JSON)
+  let opcoes = {};
+  let itens = [];
 
-    const tenants = await Tenant.find({
-      'provedor.ativo': { $ne: false },
-      'assinatura.ativa': true,
-      'agente.url': { $exists: true, $nin: [null, ''] },
-      'agente.token': { $exists: true, $nin: [null, ''] }
-    })
-      .select('_id provedor agente assinatura')
-      .sort({ 'provedor.nome': 1 })
-      .lean();
-
-    const providers = tenants.map((tenant) => {
-      const primaryColor = tenant?.provedor?.cores?.primaria;
-
-      // SEGURANÇA: apiKey (token do agente) NUNCA é retornado para o cliente.
-      // O app-cliente comunica-se exclusivamente via /client/* do backend.
-      return {
-        id: String(tenant._id),
-        name: String(tenant?.provedor?.nome || 'Provedor'),
-        agentUrl: String(tenant?.agente?.url || ''),   // mantido para derivar URL de logo/boleto
-        logo: tenant?.provedor?.logo || null,
-        primaryColor: primaryColor ? String(primaryColor) : 'verde',
-        supportEmail: tenant?.provedor?.email ? String(tenant.provedor.email) : '',
-        supportPhone: tenant?.provedor?.telefone ? String(tenant.provedor.telefone) : '',
-        active: true
-      };
-    });
-
-    return res.json({
-      success: true,
-      providers,
-      total: providers.length
-    });
-  } catch (error) {
-    console.error('❌ Erro ao listar provedores públicos:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Erro ao listar provedores',
-      providers: []
-    });
-  }
-};
-
-routes.get('/public/providers', listPublicProviders);
-
-/**
- * Info da API
- * GET /api/info ou /api/status
- */
-const apiInfo = {
-  name: 'Nova API MK-Edge',
-  version: '2.0.0',
-  description: 'API moderna com arquitetura baseada em agente',
-  endpoints: {
-    health: 'GET /health',
-    info: 'GET /api/info',
-    status: 'GET /api/status',
-    auth: {
-      adminLogin: 'POST /api/auth/admin/login',
-      portalLogin: 'POST /api/auth/portal/login',
-      verify: 'GET /api/auth/verify',
-      logout: 'POST /api/auth/logout',
-      me: 'GET /api/me'
-    },
-    tenants: 'GET /api/tenants',
-    plans: 'GET /api/plans',
-    sessions: 'POST /sessions',
-    requests: 'POST /requests',
-    dashboardStats: 'GET /dashboard/stats',
-    client: 'GET /client/:id',
-    invoices: 'GET /invoices/:client_id',
-    search: 'GET /search',
-    agentPing: 'GET /agent/ping'
-  },
-  agentUrl: process.env.AGENT_DEFAULT_URL || 'não configurado'
-};
-
-routes.get('/info', (req, res) => res.json(apiInfo));
-routes.get('/status', (req, res) => res.json(apiInfo));
-
-/**
- * Ping do agente MK-Auth
- * GET /agent/ping
- */
-routes.get('/agent/ping', tenantMiddleware(), async (req, res) => {
-  try {
-    const ok = await MkAuthAgentService.ping(req.tenant);
-    res.json({ agent: req.tenant.agente.url, ok });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-/**
- * Teste simples de query no agente
- * GET /agent/test
- */
-routes.get('/agent/test', tenantMiddleware(), async (req, res) => {
-  try {
-    const result = await MkAuthAgentService.executeCustom(req.tenant, 'SELECT 1 AS ok', {});
-    res.json({ ok: true, result });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// ==================== ROTAS DO APP-CLIENTE (proxy seguro) ====================
-// O app-cliente NUNCA chama o agente diretamente.
-// Todas as queries passam por estas rotas que:
-//   1. Exigem JWT de cliente válido (exceto /client/contracts)
-//   2. Obtêm as credenciais do agente do banco de dados (nunca exposto ao app)
-//   3. Encaminham a requisição ao agente via rede interna
-
-const jwt = require('jsonwebtoken');
-
-/**
- * Autentica cliente no sis_cliente e retorna JWT (30 dias).
- * POST /client/auth
- * Body: { login, password, tenant_id }
- * Retorna: { token, contracts[] }
- */
-routes.post('/client/auth', tenantMiddleware(), async (req, res) => {
-  try {
-    const { login: loginInput, password, senha } = req.body;
-    const finalPassword = String(password || senha || '');
-    const identifier = String(loginInput || '').trim();
-
-    if (!identifier || !finalPassword) {
-      return res.status(400).json({ error: 'Login e senha são obrigatórios' });
-    }
-
-    const cleanDoc = identifier.replace(/\D/g, '');
-    const isDoc = /^\d+$/.test(cleanDoc) && (cleanDoc.length === 11 || cleanDoc.length === 14);
-
-    const sql = isDoc
-      ? `SELECT id, nome, cpf_cnpj, email, login, senha, plano, cli_ativado, bloqueado,
-                endereco_res, numero_res, bairro_res, cidade_res
-         FROM sis_cliente
-         WHERE REPLACE(REPLACE(REPLACE(REPLACE(cpf_cnpj,'.',''),'-',''),'/',''),' ','') = :doc
-           AND (bloqueado IS NULL OR bloqueado NOT IN ('s','sim','S','SIM'))
-         ORDER BY login ASC LIMIT 50`
-      : `SELECT id, nome, cpf_cnpj, email, login, senha, plano, cli_ativado, bloqueado,
-                endereco_res, numero_res, bairro_res, cidade_res
-         FROM sis_cliente
-         WHERE login = :doc
-           AND (bloqueado IS NULL OR bloqueado NOT IN ('s','sim','S','SIM'))
-         ORDER BY login ASC LIMIT 50`;
-
-    const result = await MkAuthAgentService.sendToAgent(req.tenant, sql, { doc: isDoc ? cleanDoc : identifier });
-
-    if (!result.success || !result.data || result.data.length === 0) {
-      return res.status(401).json({ error: 'Login/CPF/CNPJ ou senha inválidos' });
-    }
-
-    const rows = result.data;
-    const hasValidPassword = rows.some(row => String(row.senha ?? '') === finalPassword);
-    if (!hasValidPassword) {
-      return res.status(401).json({ error: 'Login/CPF/CNPJ ou senha inválidos' });
-    }
-
-    // Monta lista de contratos
-    const contracts = rows.map(row => {
-      const addrParts = [row.endereco_res, row.numero_res ? `nº${row.numero_res}` : null, row.bairro_res, row.cidade_res].filter(Boolean);
-      return {
-        id: String(row.id),
-        number: String(row.id),
-        login: String(row.login ?? ''),
-        address: addrParts.length > 0 ? addrParts.join(', ') : 'Endereço não informado',
-        planName: String(row.plano || 'Plano não informado'),
-        value: 0,
-        clientName: String(row.nome || 'Cliente'),
-        email: String(row.email || '-'),
-        cpf: String(row.cpf_cnpj || identifier),
-        active: String(row.cli_ativado || '').toLowerCase() !== 'n',
-      };
-    });
-
-    // Gera JWT de cliente (30 dias)
-    const token = jwt.sign(
-      { role: 'client', login: rows[0].login, tenant_id: req.tenant._id.toString() },
-      process.env.JWT_SECRET,
-      { expiresIn: '30d' }
-    );
-
-    return res.json({ token, contracts });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * Lista contratos por CPF/CNPJ (pré-autenticação — sem JWT, apenas tenant_id).
- * GET /client/contracts?document=XXX
- * Retorna dados básicos (sem senha, sem financeiro).
- */
-routes.get('/client/contracts', tenantMiddleware(), async (req, res) => {
-  try {
-    const document = String(req.query.document || '').replace(/\D/g, '');
-    if (!document || (document.length !== 11 && document.length !== 14)) {
-      return res.status(400).json({ error: 'CPF/CNPJ inválido' });
-    }
-
-    const sql = `SELECT id, nome, cpf_cnpj, email, login, plano, cli_ativado, bloqueado,
-                        endereco_res, numero_res, bairro_res, cidade_res
-                 FROM sis_cliente
-                 WHERE REPLACE(REPLACE(REPLACE(REPLACE(cpf_cnpj,'.',''),'-',''),'/',''),' ','') = :doc
-                    OR REPLACE(REPLACE(REPLACE(REPLACE(login,'.',''),'-',''),'/',''),' ','') = :doc
-                 ORDER BY id DESC LIMIT 50`;
-
-    const result = await MkAuthAgentService.sendToAgent(req.tenant, sql, { doc: document });
-
-    if (!result.success || !result.data || result.data.length === 0) {
-      return res.status(404).json({ error: 'Nenhum contrato encontrado para este CPF/CNPJ' });
-    }
-
-    const contracts = result.data
-      .filter(row => String(row.bloqueado || '').toLowerCase() !== 's')
-      .map(row => {
-        const addrParts = [row.endereco_res, row.numero_res ? `nº${row.numero_res}` : null, row.bairro_res, row.cidade_res].filter(Boolean);
-        return {
-          id: String(row.id),
-          number: String(row.id),
-          login: String(row.login ?? ''),
-          address: addrParts.length > 0 ? addrParts.join(', ') : 'Endereço não informado',
-          planName: String(row.plano || 'Plano não informado'),
-          value: 0,
-          clientName: String(row.nome || 'Cliente'),
-          email: String(row.email || '-'),
-          cpf: String(row.cpf_cnpj || document),
-          active: String(row.cli_ativado || '').toLowerCase() !== 'n',
-        };
-      });
-
-    return res.json({ contracts });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * Proxy de queries para o agente — requer JWT de cliente.
- * POST /client/agent/query
- * Headers: Authorization: Bearer <client_jwt>
- * Body: { sql, params, action? }
- * Retorna: { success, data, count }
- */
-routes.post('/client/agent/query', tenantMiddleware(), async (req, res) => {
-  try {
-    // Valida JWT de cliente
-    const authHeader = req.headers.authorization || '';
-    if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Token não fornecido' });
-    }
-    const token = authHeader.slice(7);
-    let payload;
+  if (nfcomRow.opcoes) {
     try {
-      payload = jwt.verify(token, process.env.JWT_SECRET);
+    opcoes = typeof nfcomRow.opcoes === 'string' ? JSON.parse(nfcomRow.opcoes) : nfcomRow.opcoes;
     } catch (e) {
-      return res.status(401).json({ error: 'Token inválido ou expirado' });
+    console.warn('[NFCOM] Erro ao parsear opcoes:', e.message);
+    opcoes = {};
     }
-    if (payload.role !== 'client') {
-      return res.status(403).json({ error: 'Acesso negado' });
-    }
-
-    const { sql, params, action } = req.body || {};
-
-    // Permite apenas execute_query e ping
-    if (action && action !== 'execute_query' && action !== 'ping') {
-      return res.status(400).json({ success: false, error: 'Ação não permitida' });
-    }
-
-    if (!sql || typeof sql !== 'string' || sql.trim() === '') {
-      return res.status(400).json({ success: false, error: 'SQL obrigatório' });
-    }
-
-    const result = await MkAuthAgentService.sendToAgent(req.tenant, sql.trim(), params || {});
-    return res.json(result);
-  } catch (err) {
-    const status = Number.isInteger(err?.status) ? err.status : 500;
-    const responseData = err?.responseData && typeof err.responseData === 'object'
-      ? err.responseData
-      : null;
-
-    return res.status(status).json({
-      success: false,
-      error: responseData?.error || err.message,
-      ...(responseData?.retry_after_seconds ? { retry_after_seconds: responseData.retry_after_seconds } : {}),
-      ...(responseData?.limit ? { limit: responseData.limit } : {}),
-    });
   }
-});
 
-// ==================== SESSÕES ====================
-
-/**
- * Login do cliente (App Mobile)
- * POST /sessions (montado como /api/sessions no app.js)
- * Body: { login, senha }
- */
-routes.post('/sessions', tenantMiddleware(), SessionController.store);
-
-// ==================== RASTREAMENTO DE TÉCNICOS ====================
-
-/**
- * Atualiza localização do técnico (app mobile)
- * POST /tracking/location
- */
-routes.post('/tracking/location', resolveTrackingTenant, authMiddleware, TrackingController.updateLocation);
-
-/**
- * Resolve tenant_id via token do agente
- * GET /tracking/resolve-tenant
- * Header: x-agent-token
- */
-routes.get('/tracking/resolve-tenant', async (req, res) => {
-  try {
-    const providedAgentToken = String(req.headers['x-agent-token'] || req.query.agent_token || '').trim();
-
-    if (!providedAgentToken) {
-      return res.status(401).json({
-        success: false,
-        error: 'Token do agente não fornecido'
-      });
+  if (nfcomRow.itens) {
+    try {
+    const parsedItens = typeof nfcomRow.itens === 'string' ? JSON.parse(nfcomRow.itens) : nfcomRow.itens;
+    itens = Array.isArray(parsedItens)
+      ? parsedItens
+      : (parsedItens && typeof parsedItens === 'object' ? Object.values(parsedItens) : []);
+    } catch (e) {
+    console.warn('[NFCOM] Erro ao parsear itens:', e.message);
+    itens = [];
     }
+  }
 
-    const Tenant = require('./app/schemas/Tenant');
-    const tenant = await Tenant.findOne({
-      'agente.token': providedAgentToken,
-    })
-      .select('_id provedor.nome')
-      .lean();
+  const clienteTextoNfcom = String(opcoes?.cliente || '').trim();
+  const clienteNomeNfcom = String(
+    opcoes?.cliente_nome || (clienteTextoNfcom.includes('|') ? clienteTextoNfcom.split('|').slice(1).join('|') : '')
+  ).trim();
+  const provedorCnpjNfcom = String(opcoes?.cnpj || '').trim();
+  const consultaNfcom = buildNfcomConsultaData({
+    chave: nfcomRow.chave || opcoes?.chaveNFCom,
+    ambiente: opcoes?.ambiente,
+    uf: nfcomRow.provedor_estado,
+    autorizador: opcoes?.autorizador,
+  });
 
-    if (!tenant) {
-      return res.status(404).json({
-        success: false,
-        error: 'Tenant não encontrado para o token informado'
-      });
-    }
+  // 3. Retornar dados estruturados
+  return res.json({
+    nfcom: {
+    uuid_nfcom: String(nfcomRow.uuid_nfcom || ''),
+    idmka: String(nfcomRow.idmka || ''),
+    numero: String(nfcomRow.numero || ''),
+    serie: String(nfcomRow.serie || ''),
+    chave: String(nfcomRow.chave || ''),
+    chNFCom: String(consultaNfcom.chNFCom || ''),
+    tpAmb: consultaNfcom.tpAmb,
+    uf: String(consultaNfcom.uf || ''),
+    autorizador: String(consultaNfcom.autorizador || ''),
+    baseQRCode: String(consultaNfcom.baseQrCode || ''),
+    urlConsulta: String(consultaNfcom.urlConsulta || ''),
+    emissao: nfcomRow.emissao ? String(nfcomRow.emissao) : null,
+    status: String(nfcomRow.status || 'PROCESSAMENTO'),
+    protocolo: String(nfcomRow.protocolo || ''),
+    obs: String(nfcomRow.obs || ''),
+        
+    // Provedor
+    provedor_nome: String(nfcomRow.provedor_nome || req.tenant?.provedor?.nome || 'Provedor'),
+    provedor_razao: String(nfcomRow.provedor_razao || req.tenant?.provedor?.razao_social || req.tenant?.provedor?.nome || ''),
+    provedor_cnpj: String(nfcomRow.provedor_cnpj || provedorCnpjNfcom || req.tenant?.provedor?.cnpj || ''),
+    provedor_ie: String(pickFirstText(nfcomRow.provedor_ie, opcoes?.ie, opcoes?.ie_emitente, opcoes?.ieEmitente, opcoes?.emitente_ie, opcoes?.prestador_ie, opcoes?.iePrestador, opcoes?.inscricao_estadual, opcoes?.inscricaoEstadual) || 'ISENTO'),
+    provedor_im: String(pickFirstText(nfcomRow.provedor_im, opcoes?.im, opcoes?.im_emitente, opcoes?.imEmitente, opcoes?.emitente_im, opcoes?.prestador_im, opcoes?.imPrestador, opcoes?.inscricao_municipal, opcoes?.inscricaoMunicipal) || '-'),
+    provedor_endereco: String(combineStreetAndNumber(nfcomRow.provedor_endereco, nfcomRow.provedor_numero) || ''),
+    provedor_bairro: String(nfcomRow.provedor_bairro || ''),
+    provedor_cidade: String(nfcomRow.provedor_cidade || ''),
+    provedor_estado: String(nfcomRow.provedor_estado || ''),
+    provedor_cep: String(nfcomRow.provedor_cep || ''),
+    provedor_fone: String(nfcomRow.provedor_fone || req.tenant?.provedor?.telefone || ''),
+    provedor_site: String(nfcomRow.provedor_site || req.tenant?.provedor?.website || ''),
+    provedor_logo_url: String(req.tenant?.provedor?.logo || ''),
 
-    return res.json({
-      success: true,
-      tenant_id: String(tenant._id),
-      tenant_nome: tenant?.provedor?.nome || ''
-    });
+    // Cliente / tomador
+    cliente_login: String(nfcomRow.cliente_login || ''),
+    cliente_nome: String(nfcomRow.cliente_nome || clienteNomeNfcom || 'Não informado'),
+    cliente_cpf_cnpj: String(nfcomRow.cliente_cpf_cnpj || ''),
+    cliente_email: String(nfcomRow.cliente_email || ''),
+    cliente_fone: String(nfcomRow.cliente_fone || ''),
+    cliente_celular: String(nfcomRow.cliente_celular || ''),
+    cliente_endereco: String(nfcomRow.cliente_endereco || ''),
+    cliente_numero: String(nfcomRow.cliente_numero || ''),
+    cliente_complemento: String(nfcomRow.cliente_complemento || ''),
+    cliente_bairro: String(nfcomRow.cliente_bairro || ''),
+    cliente_cidade: String(nfcomRow.cliente_cidade || ''),
+    cliente_estado: String(nfcomRow.cliente_estado || ''),
+    cliente_cep: String(nfcomRow.cliente_cep || ''),
+    },
+    opcoes,
+    itens: Array.isArray(itens) ? itens : [],
+  });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: 'Erro ao resolver tenant do agente',
-      message: error.message
-    });
+  console.error('[NFCOM][ByUuid]', error.message);
+  return res.status(500).json({ error: 'Erro ao buscar dados da NFCom' });
   }
 });
 
 /**
- * Lista técnicos com rastreio recente
- * GET /tracking/technicians?minutes=120&limit=50
+ * Renderizar HTML da DANFE-COM para visualização
+ * GET /nfcom/html/:uuid_lanc
+ * Retorna HTML pronto para visualizar/imprimir
  */
-routes.get('/tracking/technicians', resolveTrackingTenant, allowTrackingRead, TrackingController.listTechnicians);
+routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (req, res) => {
+  const uuidLanc = String(req.params.uuid_lanc || '').trim();
 
-/**
- * Busca trilha de um técnico
- * GET /tracking/technicians/:login?minutes=180&point_limit=300
- */
-routes.get('/tracking/technicians/:login', resolveTrackingTenant, allowTrackingRead, TrackingController.showTechnician);
-
-// ==================== ROTAS DE AUTENTICAÇÃO ====================
-
-/**
- * Login Admin
- * POST /auth/admin/login (montado como /api/auth/admin/login no app.js)
- * Body: { username, password }
- */
-routes.post('/auth/admin/login', AuthController.loginAdmin);
-
-/**
- * Login Portal (Tenant)
- * POST /auth/portal/login (montado como /api/auth/portal/login no app.js)
- * Body: { cnpj, password }
- */
-routes.post('/auth/portal/login', AuthController.loginPortal);
-
-/**
- * Logout
- * POST /auth/logout (montado como /api/auth/logout no app.js)
- */
-routes.post('/auth/logout', AuthController.logout);
-
-/**
- * Verificar Token
- * GET /auth/verify (montado como /api/auth/verify no app.js)
- * Headers: Authorization: Bearer {token}
- */
-routes.get('/auth/verify', AuthController.verify);
-
-/**
- * Obter dados do usuário logado
- * GET /me (montado como /api/me no app.js)
- * Headers: Authorization: Bearer {token}
- */
-routes.get('/me', AuthController.me);
-
-// ==================== ROTAS DE RECUPERAÇÃO DE SENHA ====================
-
-const PasswordRecoveryController = require('./app/controllers/PasswordRecoveryController');
-
-/**
- * Obter contatos mascarados
- * GET /api/auth/password-recovery/contacts?identifier=admin
- * Público - sem autenticação
- */
-routes.get('/auth/password-recovery/contacts', PasswordRecoveryController.getContacts);
-
-/**
- * Solicitar código via SMS
- * POST /api/auth/password-recovery/request-sms
- * Público - sem autenticação
- */
-routes.post('/auth/password-recovery/request-sms', PasswordRecoveryController.requestSmsRecovery);
-
-/**
- * Solicitar código via Email
- * POST /api/auth/password-recovery/request-email
- * Público - sem autenticação
- */
-routes.post('/auth/password-recovery/request-email', PasswordRecoveryController.requestEmailRecovery);
-
-/**
- * Solicitar código via WhatsApp
- * POST /api/auth/password-recovery/request-whatsapp
- * Público - sem autenticação
- */
-routes.post('/auth/password-recovery/request-whatsapp', PasswordRecoveryController.requestWhatsappRecovery);
-
-/**
- * Verificar código e resetar senha
- * POST /api/auth/password-recovery/verify-code
- * Público - sem autenticação
- */
-routes.post('/auth/password-recovery/verify-code', PasswordRecoveryController.verifyCodeAndReset);
-
-/**
- * Obter contatos para login 2FA do cliente
- * GET /api/auth/login-2fa/contacts?cpf=00000000000&tenant_id=...
- */
-routes.get('/auth/login-2fa/contacts', PasswordRecoveryController.getClient2FAContacts);
-
-/**
- * Solicitar código para login 2FA do cliente
- * POST /api/auth/login-2fa/request-code
- * Body: { cpf, method: 'email'|'sms', tenant_id }
- */
-routes.post('/auth/login-2fa/request-code', PasswordRecoveryController.requestClient2FACode);
-
-/**
- * Validar código para login 2FA do cliente
- * POST /api/auth/login-2fa/verify-code
- * Body: { cpf, code, tenant_id }
- */
-routes.post('/auth/login-2fa/verify-code', PasswordRecoveryController.verifyClient2FACode);
-
-// ==================== ROTAS DE TENANTS (ADMIN) ====================
-
-console.log('🔧 Registrando rotas de tenants...');
-
-/**
- * Listar todos os tenants
- * GET /api/tenants
- * Query params: page, limit, ativo, nome
- */
-routes.get('/tenants', authMiddleware, async (req, res) => {
-  const tenantController = new TenantController();
-  return tenantController.index(req, res);
-});
-
-/**
- * Buscar tenant por ID
- * GET /api/tenants/:id
- */
-routes.get('/tenants/:id', authMiddleware, async (req, res) => {
-  const tenantController = new TenantController();
-  return tenantController.show(req, res);
-});
-
-/**
- * Criar novo tenant
- * POST /api/tenants
- */
-routes.post('/tenants', authMiddleware, async (req, res) => {
-  const tenantController = new TenantController();
-  return tenantController.store(req, res);
-});
-
-/**
- * Atualizar tenant
- * PUT /api/tenants/:id
- */
-routes.put('/tenants/:id', authMiddleware, async (req, res) => {
-  const tenantController = new TenantController();
-  return tenantController.update(req, res);
-});
-
-/**
- * Deletar tenant
- * DELETE /api/tenants/:id
- */
-routes.delete('/tenants/:id', authMiddleware, async (req, res) => {
-  const tenantController = new TenantController();
-  return tenantController.destroy(req, res);
-});
-
-/**
- * GET /api/admin/tenants/:id/plans
- * Listar planos de um tenant específico (Admin)
- */
-routes.get('/admin/tenants/:id/plans', optionalTenantMiddleware(), authMiddleware, async (req, res) => {
-  try {
-    const Plan = require('./app/schemas/Plan');
-    const { id } = req.params;
-    const { active_only } = req.query;
-
-    const query = { tenant_id: id };
-    if (active_only === 'true') {
-      query.ativo = true;
-    }
-
-    const plans = await Plan.find(query).lean();
-
-    res.json({
-      success: true,
-      plans
-    });
-  } catch (error) {
-    console.error('Erro ao listar planos do tenant:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erro ao listar planos'
-    });
+  if (!uuidLanc) {
+  return res.status(400).json({ error: 'UUID da fatura é obrigatório' });
   }
-});
 
-/**
- * GET /api/tenants/:id/portal/user
- * Obter usuário do portal de um tenant (Admin)
- */
-routes.get('/tenants/:id/portal/user', authMiddleware, async (req, res) => {
   try {
-    const User = require('./app/schemas/User');
-    const { id } = req.params;
+  const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 
-    const portalUser = await User.findOne({
-      tenant_id: id,
-      roles: 'portal'
-    }).lean();
+  // Buscar dados da NFCom, provedor e tomador
+  const nfcomResult = await MkAuthAgentService.sendToAgent(
+    req.tenant,
+    `
+    SELECT
+      n.uuid_nfcom,
+      n.idmka,
+      n.titulo,
+      n.numero,
+      n.serie,
+      n.emissao,
+      n.status,
+      n.chave,
+      n.protocolo,
+      n.opcoes,
+      n.itens,
+      n.obs,
+      l.login AS cliente_login,
+      c.nome AS cliente_nome,
+      c.cpf_cnpj AS cliente_cpf_cnpj,
+      c.email AS cliente_email,
+      c.fone AS cliente_fone,
+      c.celular AS cliente_celular,
+      c.endereco_res AS cliente_endereco,
+      c.numero_res AS cliente_numero,
+      c.complemento_res AS cliente_complemento,
+      c.bairro_res AS cliente_bairro,
+      c.cidade_res AS cliente_cidade,
+      c.cep_res AS cliente_cep,
+      p.nome AS provedor_nome,
+      p.razao AS provedor_razao,
+      p.cnpj AS provedor_cnpj,
+      p.ie AS provedor_ie,
+      p.im AS provedor_im,
+      p.endereco AS provedor_endereco,
+      p.numero AS provedor_numero,
+      p.bairro AS provedor_bairro,
+      p.cidade AS provedor_cidade,
+      p.estado AS provedor_estado,
+      p.cep AS provedor_cep,
+      p.fone AS provedor_fone,
+      p.site AS provedor_site
+    FROM sis_nfcom n
+    LEFT JOIN sis_lanc l
+         ON l.uuid_lanc = n.titulo
+    LEFT JOIN sis_cliente c
+         ON c.login = l.login
+    CROSS JOIN sis_provedor p
+    WHERE n.titulo = ?
+    LIMIT 1
+    `,
+    [uuidLanc]
+  );
 
-    if (!portalUser) {
-      return res.json({
-        success: true,
-        user: null
-      });
-    }
-
-    res.json({
-      success: true,
-      user: {
-        login: portalUser.login,
-        nome: portalUser.nome,
-        ativo: portalUser.ativo
-      }
-    });
-  } catch (error) {
-    console.error('Erro ao buscar usuário portal:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erro ao buscar usuário'
-    });
+  const nfcomRow = nfcomResult?.data?.[0];
+  if (!nfcomRow) {
+    return res.status(404).send('<h1>NFCom não encontrada</h1>');
   }
-});
 
-/**
- * POST /api/tenants/:id/portal/reset-password
- * Resetar senha do usuário portal de um tenant (Admin)
- * Body opcional: { newPassword?: string, generate?: boolean }
- */
-routes.post('/tenants/:id/portal/reset-password', authMiddleware, async (req, res) => {
-  try {
-    const User = require('./app/schemas/User');
-    const { id } = req.params;
-    const { newPassword, generate } = req.body || {};
+  // Parsear opcoes e itens
+  let opcoes = {};
+  let itens = [];
 
-    const portalUser = await User.findOne({
-      tenant_id: id,
-      roles: 'portal'
-    });
-
-    if (!portalUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'Usuário portal não encontrado para este tenant'
-      });
+  if (nfcomRow.opcoes) {
+    try {
+    opcoes = typeof nfcomRow.opcoes === 'string' ? JSON.parse(nfcomRow.opcoes) : nfcomRow.opcoes;
+    } catch (e) {
+    opcoes = {};
     }
+  }
 
-    const generatedPassword = () => {
-      const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$!%*?&';
-      let pwd = '';
-      for (let i = 0; i < 12; i += 1) {
-        pwd += charset.charAt(Math.floor(Math.random() * charset.length));
-      }
-      return pwd;
+  if (nfcomRow.itens) {
+    try {
+    const parsedItens = typeof nfcomRow.itens === 'string' ? JSON.parse(nfcomRow.itens) : nfcomRow.itens;
+    itens = Array.isArray(parsedItens)
+      ? parsedItens
+      : (parsedItens && typeof parsedItens === 'object' ? Object.values(parsedItens) : []);
+    } catch (e) {
+    itens = [];
+    }
+  }
+
+  const clienteTextoNfcom = String(opcoes?.cliente || '').trim();
+  const clienteNomeNfcom = String(
+    opcoes?.cliente_nome || (clienteTextoNfcom.includes('|') ? clienteTextoNfcom.split('|').slice(1).join('|') : '')
+  ).trim();
+  const provedorCnpjNfcom = String(opcoes?.cnpj || '').trim();
+
+  // Helper functions
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+  };
+
+  const formatarCPFCNPJ = (cpf_cnpj) => {
+    if (!cpf_cnpj) return 'Não informado';
+    const clean = cpf_cnpj.replace(/\D/g, '');
+    if (clean.length === 11) {
+    return clean.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+    } else if (clean.length === 14) {
+    return clean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+    }
+    return cpf_cnpj;
+  };
+
+  const formatarCEP = (cep) => {
+    if (!cep) return '-';
+    const clean = cep.replace(/\D/g, '');
+    return clean.replace(/^(\d{5})(\d{3})$/, '$1-$2');
+  };
+
+  const formatarDataHora = (value) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    });
+  };
+
+  const formatarPeriodoReferencia = (value) => {
+    if (!value) return '-';
+    const [inicio, fim] = String(value).split('|');
+    const formatMesAno = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (Number.isNaN(date.getTime())) return String(dateStr);
+    return date.toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' });
     };
+    const inicioFmt = formatMesAno(inicio);
+    const fimFmt = formatMesAno(fim);
+    return inicioFmt && fimFmt ? `${inicioFmt} a ${fimFmt}` : String(value);
+  };
 
-    const finalPassword = newPassword && String(newPassword).trim()
-      ? String(newPassword).trim()
-      : (generate ? generatedPassword() : null);
+  const formatarValor = (value) => parseFloat(value || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
-    if (!finalPassword) {
-      return res.status(400).json({
-        success: false,
-        message: 'Informe newPassword ou use generate=true'
-      });
+  const dataEmissao = formatarDataHora(nfcomRow.emissao || new Date());
+  const dataAutorizacao = formatarDataHora(opcoes?.dhRecbto || nfcomRow.emissao);
+  const periodoReferencia = formatarPeriodoReferencia(opcoes?.reftitulo);
+  const ambienteNormalizado = String(opcoes?.ambiente || '').toUpperCase();
+  const ambienteLabel = ambienteNormalizado.includes('HOMO') ? 'HOMOLOGAÇÃO' : 'PRODUÇÃO';
+  const badgeAmbienteClass = ambienteNormalizado.includes('HOMO') ? 'badge-danger' : 'badge-success';
+  const consultaNfcom = buildNfcomConsultaData({
+    chave: nfcomRow.chave || opcoes?.chaveNFCom,
+    ambiente: opcoes?.ambiente,
+    uf: nfcomRow.provedor_estado,
+    autorizador: opcoes?.autorizador,
+  });
+  const portalConsultaLabel = String(consultaNfcom.baseQrCode || 'https://dfe-portal.svrs.rs.gov.br/nfcom/qrCode')
+    .replace(/^https?:\/\//i, '')
+    .split('/')[0];
+
+  const tenantBaseUrl = resolveTenantBillingBaseUrl(req.tenant);
+  const providerLogoUrl = (() => {
+    const explicitLogo = String(req.tenant?.provedor?.logo || '').trim();
+    if (/^https?:\/\//i.test(explicitLogo)) {
+    return explicitLogo;
     }
+    if (explicitLogo && tenantBaseUrl) {
+    return `${tenantBaseUrl}/${explicitLogo.replace(/^\/+/, '')}`;
+    }
+    return tenantBaseUrl ? `${tenantBaseUrl}/mkfiles/logo.jpg` : '';
+  })();
 
-    // Salva senha em texto puro para ser hasheada pelo pre-save do schema User
-    portalUser.senha = finalPassword;
-    await portalUser.save();
+  nfcomRow.provedor_nome = String(nfcomRow.provedor_nome || req.tenant?.provedor?.nome || 'Provedor');
+  nfcomRow.provedor_razao = String(nfcomRow.provedor_razao || req.tenant?.provedor?.razao_social || nfcomRow.provedor_nome || 'Provedor');
+  nfcomRow.provedor_cnpj = String(nfcomRow.provedor_cnpj || provedorCnpjNfcom || req.tenant?.provedor?.cnpj || '');
+  nfcomRow.provedor_ie = String(pickFirstText(nfcomRow.provedor_ie, opcoes?.ie, opcoes?.ie_emitente, opcoes?.ieEmitente, opcoes?.emitente_ie, opcoes?.prestador_ie, opcoes?.iePrestador, opcoes?.inscricao_estadual, opcoes?.inscricaoEstadual) || 'ISENTO');
+  nfcomRow.provedor_im = String(pickFirstText(nfcomRow.provedor_im, opcoes?.im, opcoes?.im_emitente, opcoes?.imEmitente, opcoes?.emitente_im, opcoes?.prestador_im, opcoes?.imPrestador, opcoes?.inscricao_municipal, opcoes?.inscricaoMunicipal) || '-');
+  nfcomRow.provedor_fone = String(nfcomRow.provedor_fone || req.tenant?.provedor?.telefone || '');
+  nfcomRow.provedor_site = String(nfcomRow.provedor_site || req.tenant?.provedor?.website || '');
+  nfcomRow.provedor_endereco = combineStreetAndNumber(nfcomRow.provedor_endereco, nfcomRow.provedor_numero);
+  nfcomRow.cliente_nome = String(nfcomRow.cliente_nome || clienteNomeNfcom || 'Não informado');
 
-    return res.json({
-      success: true,
-      message: 'Senha do portal resetada com sucesso',
-      password: finalPassword
-    });
+  const clienteEnderecoCompleto = [
+    nfcomRow.cliente_endereco,
+    nfcomRow.cliente_numero,
+    nfcomRow.cliente_complemento,
+  ].filter(Boolean).join(', ');
+
+  // Gerar HTML
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DANFE-COM Nº ${escapeHtml(nfcomRow.numero)}/${escapeHtml(nfcomRow.serie)}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      background: #ececec;
+      padding: 8px;
+      color: #1f1f1f;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .container {
+      width: 100%;
+      max-width: 780px;
+      margin: 0 auto;
+      background: #f6f6f6;
+      border: 1px solid #cfd5dc;
+      padding: 6px;
+    }
+    .danfe-header {
+      margin-bottom: 8px;
+    }
+    .header-row {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      flex-wrap: wrap;
+    }
+    .header-left,
+    .header-center {
+      background: #fff;
+      border: 1px solid #d6dce3;
+      border-radius: 6px;
+    }
+    .header-left {
+      flex: 0 0 140px;
+      text-align: center;
+      padding: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .header-center {
+      flex: 1;
+      text-align: center;
+      padding: 10px 12px;
+    }
+    .header-center h1 {
+      font-size: 20px;
+      color: #1f3f73;
+      margin-bottom: 2px;
+      letter-spacing: 0.5px;
+    }
+    .header-center .subtitle {
+      font-size: 10px;
+      color: #444;
+    }
+    .header-center .modelo {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: #1f3f73;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .header-right {
+      flex: 0 0 182px;
+      background: #294a7a;
+      border: 1px solid #1f3f68;
+      border-radius: 6px;
+      color: #fff;
+      padding: 8px 8px 7px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .qr-wrapper {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      padding: 5px;
+      background: #284a7b;
+      border-radius: 6px;
+      flex-wrap: wrap;
+      align-items: stretch;
+    }
+    .qr-card,
+    .barcode-card {
+      background: #fff;
+      border-radius: 6px;
+      padding: 6px;
+    }
+    .qr-card {
+      flex: 0 0 92px;
+      text-align: center;
+    }
+    .barcode-card {
+      flex: 1 1 320px;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .section {
+      border: 1px solid #d6dce3;
+      margin-bottom: 6px;
+      background: #fff;
+      overflow: hidden;
+      border-radius: 3px;
+    }
+    .section-title {
+      background: #2e4665;
+      color: #fff;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .section-content {
+      background: #fff;
+    }
+    .info-row {
+      display: flex;
+      flex-wrap: wrap;
+    }
+    .info-field {
+      flex: 1;
+      min-width: 0;
+      padding: 5px 8px;
+      border-right: 1px solid #e3e7eb;
+      border-bottom: 1px solid #e3e7eb;
+      min-height: 42px;
+    }
+    .info-row:last-child .info-field {
+      border-bottom: none;
+    }
+    .info-field:last-child {
+      border-right: none;
+    }
+    .info-field.full-width {
+      flex: 1 0 100%;
+    }
+    .info-label {
+      display: block;
+      font-size: 9px;
+      color: #5d6670;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .info-value {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: #1f1f1f;
+      word-break: break-word;
+    }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .table th,
+    .table td {
+      border: 1px solid #d9dfe5;
+      padding: 5px 6px;
+      font-size: 11px;
+    }
+    .table th {
+      background: #f1f3f5;
+      text-align: left;
+    }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 9px;
+      font-weight: 700;
+    }
+    .badge-success {
+      background: #d8f0db;
+      color: #1d6b2d;
+      border: 1px solid #b8ddb9;
+    }
+    .badge-danger {
+      background: #f8d7da;
+      color: #7b2029;
+      border: 1px solid #eab9bf;
+    }
+    .actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 10px 0 2px;
+    }
+    .action-btn {
+      border: none;
+      background: linear-gradient(180deg, #6a5ae0 0%, #5441d8 100%);
+      color: #fff;
+      border-radius: 6px;
+      padding: 9px 16px;
+      font-size: 12px;
+      font-weight: 700;
+      box-shadow: 0 1px 4px rgba(84, 65, 216, 0.25);
+    }
+    @media (max-width: 768px) {
+      body { padding: 0; background: #fff; }
+      .container { max-width: 100%; border: none; padding: 4px; }
+      .header-left, .header-center, .header-right, .qr-card, .barcode-card { flex: 1 1 100%; }
+      .info-field, .info-field.full-width { flex: 1 1 100% !important; width: 100% !important; border-right: none; }
+      .table th, .table td { font-size: 10px; }
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .container { max-width: 100%; border: none; }
+      .actions { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="danfe-header">
+      <div class="header-row">
+        <div class="header-left" style="border: none; background: #ffffff;">
+          <div style="height: 78px; width: 128px; display: flex; align-items: center; justify-content: center; background: #ffffff; border-radius: 4px; overflow: hidden;">
+            ${providerLogoUrl ? `<img src="${escapeHtml(providerLogoUrl)}" alt="Logo do provedor" style="max-width: 100%; max-height: 74px; object-fit: contain;">` : `<span style="font-size: 16px; color: #666; font-weight: 700;">${escapeHtml(nfcomRow.provedor_nome || 'LOGO')}</span>`}
+          </div>
+        </div>
+        <div class="header-center">
+          <h1>DANFE-COM</h1>
+          <div class="subtitle">Documento Auxiliar da Nota Fiscal</div>
+          <div class="subtitle">Fatura de Serviço de Comunicação Eletrônica</div>
+          <div class="modelo">MODELO 62 / NFCom</div>
+        </div>
+        <div class="header-right">
+          <div style="font-size: 10px; opacity: 0.9; text-transform: uppercase; margin-bottom: 4px;">NF-e</div>
+          <div style="font-size: 22px; font-weight: 800; line-height: 1.05; white-space: nowrap; display: flex; align-items: baseline; justify-content: center; gap: 4px;">
+            <span style="font-size: 14px; font-weight: 700;">Nº</span>
+            <span>${escapeHtml(String(nfcomRow.numero).padStart(9, '0'))}</span>
+          </div>
+          <div style="font-size: 16px; font-weight: 700; margin-top: 3px;">SÉRIE ${escapeHtml(nfcomRow.serie)}</div>
+          <div style="margin-top: 8px; padding: 5px 8px; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); border-radius: 6px; font-size: 10px;">
+            📅 ${escapeHtml(dataEmissao)}
+          </div>
+        </div>
+      </div>
+      ${nfcomRow.chave ? `
+      <div class="qr-wrapper">
+        <div class="qr-card">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(consultaNfcom.urlConsulta || consultaNfcom.chNFCom || nfcomRow.chave)}"
+             alt="QR Code NFCom"
+             style="width: 78px; height: 78px; display: block; margin: 0 auto;">
+          <div style="font-size: 8px; color: #444; margin-top: 4px; line-height: 1.15;">
+            <strong>CONSULTE</strong><br>
+            ${escapeHtml(portalConsultaLabel)}
+          </div>
+        </div>
+        <div class="barcode-card">
+          <div style="text-align: center; padding: 4px 6px; background: #f2f4f7; border-radius: 4px; margin-bottom: 4px;">
+            <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(consultaNfcom.chNFCom || nfcomRow.chave)}&code=Code128&translate-esc=on&unit=Fit&dpi=96&imagetype=Gif&rotation=0&color=%23000000&bgcolor=%23ffffff"
+               alt="Código de Barras"
+               style="width: 96%; height: 24px; display: block; margin: 0 auto;">
+          </div>
+          <div style="text-align: center;">
+            <div style="font-size: 10px; color: #1f3f73; font-weight: 700; margin-bottom: 3px;">🔑 CHAVE DE ACESSO</div>
+            <div style="font-family: 'Courier New', monospace; font-size: 11px; font-weight: 700; letter-spacing: 1px; background: #f7f8fa; padding: 6px 8px; border-radius: 4px; display: inline-block; max-width: 100%; margin-top: 2px; line-height: 1.15;">${escapeHtml(consultaNfcom.chNFCom || nfcomRow.chave)}</div>
+            <div style="margin-top: 6px; display: flex; justify-content: center; gap: 6px; flex-wrap: wrap;">
+              <span class="badge ${badgeAmbienteClass}">${escapeHtml(ambienteLabel)}</span>
+              <span class="badge badge-success">DOCUMENTO COM VALOR FISCAL</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      ` : ''}
+    </div>
+
+    <!-- Prestador -->
+    <div class="section">
+      <div class="section-title">Prestador de Serviços de Comunicação</div>
+      <div class="section-content">
+        <div class="info-row">
+          <div class="info-field full-width">
+            <span class="info-label">Razão Social</span>
+            <span class="info-value">${escapeHtml(nfcomRow.provedor_razao || 'Não informado')}</span>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-field full-width">
+            <span class="info-label">Nome Fantasia</span>
+            <span class="info-value">${escapeHtml(nfcomRow.provedor_nome || nfcomRow.provedor_razao || 'Não informado')}</span>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-field" style="flex: 0 0 38%;">
+            <span class="info-label">CNPJ</span>
+            <span class="info-value">${escapeHtml(formatarCPFCNPJ(nfcomRow.provedor_cnpj))}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 28%;">
+            <span class="info-label">Inscrição Estadual</span>
+            <span class="info-value">${escapeHtml(nfcomRow.provedor_ie || 'ISENTO')}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 20%;">
+            <span class="info-label">Inscrição Municipal</span>
+            <span class="info-value">${escapeHtml(nfcomRow.provedor_im || '-')}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 14%;">
+            <span class="info-label">UF</span>
+            <span class="info-value">${escapeHtml(nfcomRow.provedor_estado || '-')}</span>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-field" style="flex: 0 0 70%;">
+            <span class="info-label">Endereço</span>
+            <span class="info-value">${escapeHtml(nfcomRow.provedor_endereco || '-')}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 30%;">
+            <span class="info-label">Bairro</span>
+            <span class="info-value">${escapeHtml(nfcomRow.provedor_bairro || '-')}</span>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-field" style="flex: 0 0 40%;">
+            <span class="info-label">Município</span>
+            <span class="info-value">${escapeHtml(nfcomRow.provedor_cidade || '-')}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 25%;">
+            <span class="info-label">CEP</span>
+            <span class="info-value">${escapeHtml(formatarCEP(nfcomRow.provedor_cep))}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 35%;">
+            <span class="info-label">Telefone</span>
+            <span class="info-value">${escapeHtml(nfcomRow.provedor_fone || '-')}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tomador -->
+    <div class="section">
+      <div class="section-title">Tomador do Serviço</div>
+      <div class="section-content">
+        <div class="info-row">
+          <div class="info-field full-width">
+            <span class="info-label">Nome/Razão Social</span>
+            <span class="info-value">${escapeHtml(nfcomRow.cliente_nome || 'Não informado')}</span>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-field" style="flex: 0 0 34%;">
+            <span class="info-label">CPF/CNPJ</span>
+            <span class="info-value">${escapeHtml(formatarCPFCNPJ(nfcomRow.cliente_cpf_cnpj))}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 33%;">
+            <span class="info-label">Telefone</span>
+            <span class="info-value">${escapeHtml(nfcomRow.cliente_fone || '-')}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 33%;">
+            <span class="info-label">Celular</span>
+            <span class="info-value">${escapeHtml(nfcomRow.cliente_celular || '-')}</span>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-field" style="flex: 0 0 70%;">
+            <span class="info-label">Endereço</span>
+            <span class="info-value">${escapeHtml(clienteEnderecoCompleto || 'Não informado')}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 30%;">
+            <span class="info-label">Bairro</span>
+            <span class="info-value">${escapeHtml(nfcomRow.cliente_bairro || '-')}</span>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-field" style="flex: 0 0 40%;">
+            <span class="info-label">Município</span>
+            <span class="info-value">${escapeHtml(nfcomRow.cliente_cidade || '-')}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 25%;">
+            <span class="info-label">CEP</span>
+            <span class="info-value">${escapeHtml(formatarCEP(nfcomRow.cliente_cep))}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 35%;">
+            <span class="info-label">E-mail</span>
+            <span class="info-value">${escapeHtml(nfcomRow.cliente_email || '-')}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Itens -->
+    <div class="section">
+      <div class="section-title">Discriminação dos Serviços Prestados</div>
+      <div class="section-content">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width: 70%;">Descrição do Serviço</th>
+              <th style="width: 15%; text-align: center;">Qtd.</th>
+              <th style="width: 15%; text-align: right;">Valor (R$)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itens.length > 0 ? itens.map(item => `
+            <tr>
+              <td>${escapeHtml(item.descricao || 'Serviço')}</td>
+              <td class="text-center">${escapeHtml(String(item.quantidade || 1))}</td>
+              <td class="text-right">${formatarValor(item.total || 0)}</td>
+            </tr>
+            `).join('') : '<tr><td colspan="3" class="text-center">Nenhum item encontrado</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Totais -->
+    <div class="section">
+      <div class="section-title">Valores Totais e Tributos</div>
+      <div class="section-content">
+        <div class="info-row">
+          <div class="info-field">
+            <span class="info-label">Valor dos Serviços</span>
+            <span class="info-value">R$ ${formatarValor(opcoes.total_itens || 0)}</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Valor ICMS</span>
+            <span class="info-value">R$ ${formatarValor(opcoes.total_icms || 0)}</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Valor PIS</span>
+            <span class="info-value">R$ ${formatarValor(opcoes.total_pis || 0)}</span>
+          </div>
+          <div class="info-field">
+            <span class="info-label">Valor COFINS</span>
+            <span class="info-value">R$ ${formatarValor(opcoes.total_cofins || 0)}</span>
+          </div>
+          <div class="info-field" style="background: #f6f7f9;">
+            <span class="info-label">Valor Total da NFCom</span>
+            <span class="info-value" style="font-size: 16px;">R$ ${formatarValor(opcoes.total_itens || 0)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="section">
+      <div class="section-title">Dados Fiscais</div>
+      <div class="section-content">
+        <div class="info-row">
+          <div class="info-field" style="flex: 0 0 33%;">
+            <span class="info-label">Protocolo de Autorização</span>
+            <span class="info-value">${escapeHtml(nfcomRow.protocolo || 'Não autorizada')}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 22%;">
+            <span class="info-label">Data de Autorização</span>
+            <span class="info-value">${escapeHtml(dataAutorizacao)}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 25%;">
+            <span class="info-label">Período de Referência</span>
+            <span class="info-value">${escapeHtml(periodoReferencia)}</span>
+          </div>
+          <div class="info-field" style="flex: 0 0 20%;">
+            <span class="info-label">Status</span>
+            <span class="info-value">
+              ${nfcomRow.status === 'cancelado'
+                ? '<span class="badge badge-danger">Cancelada</span>'
+                : nfcomRow.protocolo
+                  ? '<span class="badge badge-success">Autorizada</span>'
+                  : '<span class="badge">Aguardando</span>'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>`;
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
   } catch (error) {
-    console.error('Erro ao resetar senha do usuário portal:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Erro ao resetar senha do usuário portal'
-    });
+  console.error('[NFCOM][HTML]', error.message);
+  res.status(500).send('<h1>Erro ao gerar DANFE-COM</h1>');
   }
 });
-
-// ==================== ROTAS DE INSTALADOR ====================
-
-/**
- * GET /api/installer/script/:tenantId
- * Retorna script de instalação personalizado
- */
-routes.get('/installer/script/:tenantId', (req, res) => 
-  InstallerController.getPersonalizedScript(req, res)
-);
-
-/**
- * GET /api/installer/download/:tenantId
- * Faz download do instalador personalizado
- */
-routes.get('/installer/download/:tenantId', (req, res) => 
-  InstallerController.downloadInstaller(req, res)
-);
-
-// ==================== ROTAS DE PLANOS (ADMIN) ====================
-
-console.log('🔧 Registrando rotas de planos...');
-
-/**
- * Listar todos os planos de todos os tenants (Admin)
- * GET /api/admin/plans
- */
-routes.get('/admin/plans', optionalTenantMiddleware(), authMiddleware, async (req, res) => {
-  try {
-    const Plan = require('./app/schemas/Plan');
-    const Tenant = require('./app/schemas/Tenant');
-    
-    // Buscar todos os planos da collection plans
-    const plans = await Plan.find({}).lean();
-    
-    // Buscar informações dos tenants para enriquecer os dados
-    const tenantIds = [...new Set(plans.map(p => p.tenant_id.toString()))];
-    const tenants = await Tenant.find({ _id: { $in: tenantIds } }).lean();
-    
-    // Criar um mapa de tenants para lookup rápido
-    const tenantMap = {};
-    tenants.forEach(t => {
-      tenantMap[t._id.toString()] = t;
-    });
-    
-    // Enriquecer planos com informações do tenant
-    const enrichedPlans = plans.map(plan => ({
-      ...plan,
-      tenant_nome: tenantMap[plan.tenant_id.toString()]?.provedor?.nome || 'Desconhecido'
-    }));
-    
-    // Ordenar por tenant e ordem
-    enrichedPlans.sort((a, b) => {
-      if (a.tenant_nome !== b.tenant_nome) {
-        return a.tenant_nome.localeCompare(b.tenant_nome);
-      }
-      return (a.ordem || 0) - (b.ordem || 0);
-    });
-    
-    return res.json({
-      success: true,
-      plans: enrichedPlans,
-      total: enrichedPlans.length
-    });
-  } catch (error) {
-    logger.error('Erro ao listar todos os planos:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Erro ao listar planos',
-      error: error.message
-    });
   }
 });
 
@@ -3383,41 +3267,6 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
     const faturasPagas = (Array.isArray(pagasResult?.data) ? pagasResult.data : [])
       .map((fat) => ({ ...fat, __invoiceId: resolveInvoiceId(fat) }))
       .filter((fat) => fat.__invoiceId);
-    
-    const nfcomByTitulo = new Set();
-    const nfcomLookupValues = Array.from(new Set(
-      faturasPagas.flatMap((fatura) => {
-        const uuidLanc = String(fatura.uuid_lanc || '').trim();
-        const invoiceId = String(fatura.__invoiceId || '').trim();
-        return [uuidLanc, invoiceId].filter(Boolean);
-      })
-    ));
-
-    if (nfcomLookupValues.length > 0) {
-      try {
-        const placeholders = nfcomLookupValues.map(() => '?').join(', ');
-        const nfcomResult = await MkAuthAgentService.sendToAgent(
-          req.tenant,
-          `
-            SELECT titulo
-            FROM sis_nfcom
-            WHERE titulo IN (${placeholders})
-          `,
-          nfcomLookupValues
-        );
-
-        (Array.isArray(nfcomResult?.data) ? nfcomResult.data : []).forEach((row) => {
-          const titulo = String(row?.titulo || '').trim();
-          if (titulo) {
-            nfcomByTitulo.add(titulo);
-          }
-        });
-      } catch (error) {
-        if (!isNfcomUnavailableError(error)) {
-          console.error('[Invoices] Erro ao verificar NFCom:', error.message);
-        }
-      }
-    }
 
     const paidInvoices = faturasPagas.map(fatura => {
       const invoiceId = fatura.__invoiceId;
@@ -3425,10 +3274,6 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
       const paidDate = fatura.datapag ? new Date(fatura.datapag).toLocaleDateString('pt-BR') : null;
       const tenantUrl = resolveTenantBillingBaseUrl(req.tenant);
       const uuidLanc = String(fatura.uuid_lanc || '').trim();
-      const hasNfcom = Boolean(
-        (uuidLanc && nfcomByTitulo.has(uuidLanc)) ||
-        (invoiceId && nfcomByTitulo.has(invoiceId))
-      );
       const collectorRaw = String(fatura.coletor || '').trim();
       const collectorUrl =
         collectorRaw.startsWith('http://') || collectorRaw.startsWith('https://')
@@ -3461,7 +3306,6 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
           status: fatura.status || 'pago',
           descricao: fatura.obs || `Fatura ${titleDate}`,
           paidAt: paidDate,
-          hasNfcom,
           coletor: collectorRaw || null,
           receipt_url: directReceiptUrl || receiptByContratoUrl || receiptBoletoUrl || fallbackReceiptUrl || '',
           nota_fiscal_url: noteFiscalUrl || ''
