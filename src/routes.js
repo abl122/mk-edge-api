@@ -147,22 +147,6 @@ const pickFirstText = (...values) => {
   return '';
 };
 
-const isNfcomUnavailableError = (error) => {
-  const message = String(error?.message || '').toLowerCase();
-  if (!message) {
-    return false;
-  }
-
-  return message.includes('sis_nfcom') && (
-    message.includes('no such table') ||
-    message.includes('doesn\'t exist') ||
-    message.includes('does not exist') ||
-    message.includes('unknown table') ||
-    message.includes('unknown column') ||
-    message.includes('base table')
-  );
-};
-
 const formatCurrencyBrl = (value) => {
   const numeric = Number.parseFloat(String(value ?? 0).replace(',', '.'));
   const safeValue = Number.isFinite(numeric) ? numeric : 0;
@@ -2345,11 +2329,9 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
     const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 
     // 1. Buscar dados da NFCom e do tomador
-    let nfcomResult;
-    try {
-      nfcomResult = await MkAuthAgentService.sendToAgent(
-        req.tenant,
-        `
+    const nfcomResult = await MkAuthAgentService.sendToAgent(
+      req.tenant,
+      `
         SELECT
           n.uuid_nfcom,
           n.idmka,
@@ -2397,14 +2379,8 @@ routes.get('/nfcom/by-uuid/:uuid_lanc', tenantMiddleware(), authMiddleware, asyn
         WHERE n.titulo = ?
         LIMIT 1
       `,
-        [uuidLanc]
-      );
-    } catch (error) {
-      if (isNfcomUnavailableError(error)) {
-        return res.status(404).json({ error: 'NFCom não disponível para este provedor' });
-      }
-      throw error;
-    }
+      [uuidLanc]
+    );
 
     const nfcomRow = nfcomResult?.data?.[0];
     if (!nfcomRow) {
@@ -2522,11 +2498,9 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
     const MkAuthAgentService = require('./app/services/MkAuthAgentService');
 
     // Buscar dados da NFCom, provedor e tomador
-    let nfcomResult;
-    try {
-      nfcomResult = await MkAuthAgentService.sendToAgent(
-        req.tenant,
-        `
+    const nfcomResult = await MkAuthAgentService.sendToAgent(
+      req.tenant,
+      `
         SELECT
           n.uuid_nfcom,
           n.idmka,
@@ -2574,14 +2548,8 @@ routes.get('/nfcom/html/:uuid_lanc', tenantMiddleware(), authMiddleware, async (
         WHERE n.titulo = ?
         LIMIT 1
       `,
-        [uuidLanc]
-      );
-    } catch (error) {
-      if (isNfcomUnavailableError(error)) {
-        return res.status(404).send('<h1>NFCom não disponível para este provedor</h1>');
-      }
-      throw error;
-    }
+      [uuidLanc]
+    );
 
     const nfcomRow = nfcomResult?.data?.[0];
     if (!nfcomRow) {
@@ -3370,37 +3338,6 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
       .map((fat) => ({ ...fat, __invoiceId: resolveInvoiceId(fat) }))
       .filter((fat) => fat.__invoiceId);
     
-    const nfcomByTitulo = new Set();
-    const uuidLancList = faturasPagas
-      .map((fatura) => String(fatura.uuid_lanc || '').trim())
-      .filter(Boolean);
-
-    if (uuidLancList.length > 0) {
-      try {
-        const placeholders = uuidLancList.map(() => '?').join(', ');
-        const nfcomResult = await MkAuthAgentService.sendToAgent(
-          req.tenant,
-          `
-            SELECT titulo
-            FROM sis_nfcom
-            WHERE titulo IN (${placeholders})
-          `,
-          uuidLancList
-        );
-
-        (Array.isArray(nfcomResult?.data) ? nfcomResult.data : []).forEach((row) => {
-          const titulo = String(row?.titulo || '').trim();
-          if (titulo) {
-            nfcomByTitulo.add(titulo);
-          }
-        });
-      } catch (error) {
-        if (!isNfcomUnavailableError(error)) {
-          console.error('[Invoices] Erro ao verificar NFCom:', error.message);
-        }
-      }
-    }
-
     const paidInvoices = faturasPagas.map(fatura => {
       const invoiceId = fatura.__invoiceId;
       const titleDate = fatura.datavenc ? new Date(fatura.datavenc).toLocaleDateString('pt-BR') : null;
@@ -3439,7 +3376,6 @@ routes.get('/invoices/:client_id', tenantMiddleware(), authMiddleware, async (re
           status: fatura.status || 'pago',
           descricao: fatura.obs || `Fatura ${titleDate}`,
           paidAt: paidDate,
-          hasNfcom: Boolean(uuidLanc && nfcomByTitulo.has(uuidLanc)),
           coletor: collectorRaw || null,
           receipt_url: directReceiptUrl || receiptByContratoUrl || receiptBoletoUrl || fallbackReceiptUrl || '',
           nota_fiscal_url: noteFiscalUrl || ''
